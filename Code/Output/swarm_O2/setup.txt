@@ -1,0 +1,63 @@
+workingConditions: 
+  reducedElecField: [1,5,10,50,100]
+  gasPressure: 133.32
+  gasTemperature: 300
+electronKinetics: 
+  isOn: true
+  eedfType: boltzmannMC
+  ionizationOperatorType: usingSDCS
+  ionizationScattering: isotropic
+  LXCatFiles: 
+    - Oxygen/O2_LXCat.txt
+    - Oxygen/O2_rot_LXCat.txt
+  gasProperties: 
+    mass: Databases/masses.txt
+    fraction: 
+      - O2 = 1
+    harmonicFrequency: Databases/harmonicFrequencies.txt
+    anharmonicFrequency: Databases/anharmonicFrequencies.txt
+    rotationalConstant: Databases/rotationalConstants.txt
+    electricQuadrupoleMoment: Databases/quadrupoleMoment.txt
+    OPBParameter: Databases/OPBParameter.txt
+  stateProperties: 
+    energy: 
+      - O2(X,v=*) = harmonicOscillatorEnergy
+      - O2(X,v=0,J=*) = rigidRotorEnergy
+    statisticalWeight: 
+      - O2(X) = 3
+      - O2(a1Dg) = 2
+      - O2(b1Sg+) = 1
+      - O2(X,v=*) = 3
+      - O(3P) = 9
+      - O(1D) = 5
+      - O2(X,v=0,J=*) = rotationalDegeneracy
+    population: 
+      - O2(X) = 1.0
+      - O2(X,v=*) = boltzmannPopulation@gasTemperature
+      - O2(X,v=0,J=*) = boltzmannPopulation@gasTemperature
+  numericsMC: 
+    nElectrons: 1E4
+    gasTemperatureEffect: smartActivation
+    nIntegrationPoints: 3E4
+gui: 
+  isOn: true
+  fontSize: 9
+  plotOptions: 
+    - MCTemporalInfo
+    - distributionFunctions
+    - swarmParameters
+    - powerBalance
+  terminalDisp: 
+    - setup
+    - MCStatus
+output: 
+  isOn: true
+  folder: swarm_O2
+  dataFiles: 
+    - eedf
+    - evdf
+    - swarmParameters
+    - rateCoefficients
+    - powerBalance
+    - MCSimDetails
+    - lookUpTable

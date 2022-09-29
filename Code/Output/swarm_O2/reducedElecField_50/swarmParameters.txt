@@ -1,0 +1,51 @@
+                    Reduced electric field = 5.00000000000000e+01 (Td)
+
+*********************************** Flux parameters ***********************************
+
+  Reduced transverse diffusion coefficient = 5.56724295100219e+24 (1/(ms)) ; Rel. std: 1.521e+00%
+Reduced longitudinal diffusion coefficient = 3.97220185585152e+24 (1/(ms)) ; Rel. std: 1.612e+00%
+              Reduced mobility coefficient = 2.13388979823951e+24 (1/(msV)); Rel. std: 1.000e+02%
+                     Characteristic energy = 2.60896460332452e+00 (eV)     ; Rel. std: 1.015e+02%
+              Reduced Townsend coefficient = 1.46858294165738e-24 (m2)
+            Reduced attachment coefficient = 2.52932157145374e-22 (m2)
+
+                                   | v_x |   | 7.67657475e+01  |                       | 1.141e+02% |
+                                   | v_y | = | 9.59969585e+01  |  (m/s)    ; Rel. std: | 9.163e+01% |
+                                   | v_z |   | 1.06694490e+05  |                       | 4.289e-01% |
+
+                      | ND_xx ND_xy ND_xz|   | 5.57626156e+24  6.60213009e+21  3.40646581e+22  |                      | 1.522e+00% 1.152e+03% 1.808e+02% |
+                      | ND_yx ND_yy ND_yz| = | 3.19326526e+22  5.55822435e+24  -9.31519083e+21 | (1/(ms)) ; Rel. std: | 2.136e+02% 1.521e+00% 6.165e+02% |
+                      | ND_zx ND_zy ND_zz|   | -4.22823653e+22 -7.04582701e+22 3.97220186e+24  |                      | 1.537e+02% 8.099e+01% 1.612e+00% |
+
+*********************************** Bulk parameters ***********************************
+
+  Reduced transverse diffusion coefficient = 5.57965810911906e+24 (1/(ms)) ; Rel. std: 3.081e+00%
+Reduced longitudinal diffusion coefficient = 3.90853698698224e+24 (1/(ms)) ; Rel. std: 2.685e+00%
+              Reduced mobility coefficient = 2.10343538031536e+24 (1/(msV)); Rel. std: 1.000e+02%
+                     Characteristic energy = 2.65264060942177e+00 (eV)     ; Rel. std: 1.031e+02%
+              Reduced Townsend coefficient = 1.48984570022845e-24 (m2)
+            Reduced attachment coefficient = 2.56594214792710e-22 (m2)
+
+                                   | v_x |   | -7.10273823e+01 |                       | 3.593e+02% |
+                                   | v_y | = | 2.05652089e+02  |  (m/s)    ; Rel. std: | 8.842e+01% |
+                                   | v_z |   | 1.05171769e+05  |                       | 6.367e-01% |
+
+                      | ND_xx ND_xy ND_xz|   | 5.43208539e+24  3.71515211e+21  4.68345453e+22  |                      | 2.800e+00% 4.017e+03% 1.820e+02% |
+                      | ND_yx ND_yy ND_yz| = | 3.71515211e+21  5.72723082e+24  -9.54329005e+22 | (1/(ms)) ; Rel. std: | 4.017e+03% 3.347e+00% 1.271e+02% |
+                      | ND_zx ND_zy ND_zz|   | 4.68345453e+22  -9.54329005e+22 3.90853699e+24  |                      | 1.820e+02% 1.271e+02% 2.685e+00% |
+
+*********************************** Energy parameters ***********************************
+
+                               Mean energy = 3.42145976143258e+00 (eV) ; Rel. std: 1.531e-01%
+                      Electron temperature = 2.28097317428838e+00 (eV) ; Rel. std: 1.531e-01%
+
+*************************** Parameters obtained from the EEDF ***************************
+
+                    Ionization coefficient = 1.56689707853562e-19 (m-3)
+                    Attachment coefficient = 2.69864674889613e-17 (m-3)
+      Reduced energy diffusion coefficient = 2.34129300572591e+25 (eV/(ms))
+                   Reduced energy mobility = 1.09423667216502e+25 (eV/(msV))
+             Reduced diffusion coefficient = 5.72627040154017e+24 (1/(ms))
+                          Reduced mobility = 2.16370967440986e+24 (1/(msV))
+                     Characteristic energy = 2.64650589183227e+00 (eV)
+

@@ -1,0 +1,31 @@
+                          number of electrons: 1.000000e+04
+                        final simulation time: 1.879469e-05 s
+                            steady-state time: 7.945700e-07 s
+                 number of integration points: 30000
+
+********************************** Collisions ************************************
+
+number of real collisions before steady-state: 2.122744e+06
+ number of real collisions after steady-state: 5.532037e+07
+----------------------------------------------------------------------------------
+              total number of real collisions: 5.744312e+07
+
+number of null collisions before steady-state: 7.757256e+06
+ number of null collisions after steady-state: 2.446796e+08
+----------------------------------------------------------------------------------
+              total number of null collisions: 2.524369e+08
+
+                  fraction of real collisions: 1.853721e+01%
+                  fraction of null collisions: 8.146279e+01%
+----------------------------------------------------------------------------------
+                                        total: 1.000000e+02%
+
+************************** Simulation relative errors ****************************
+
+                                  Mean energy: 1.7360e-03
+                          Flux drift velocity: 9.1801e-01 1.3397e+00 4.3758e-03
+                  Flux diffusion coefficients: 1.3496e-02 1.2910e-02 1.5651e-02
+                                Power balance: 3.3012e-05
+**********************************************************************************
+
+                                 Elapsed time: 3.520400e+01 s

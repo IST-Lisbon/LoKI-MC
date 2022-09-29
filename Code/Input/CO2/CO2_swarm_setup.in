@@ -1,0 +1,83 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   SWARM ANALYSIS CO2   %
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% --- configuration of the working conditions ---
+workingConditions:
+  reducedElecField: [1,10,50,100]         % in Td
+  gasPressure: 133.32                         % in Pa
+  gasTemperature: 300                         % in K
+
+% --- configuration of the electron kinetics ---
+electronKinetics:
+  isOn: true               % true or false (to activate of deactivate the electron Kinetics)
+  eedfType: boltzmannMC    % boltzmannMC or prescribedEedf
+  ionizationOperatorType: usingSDCS % oneTakesAll, equalSharing or usingSDCS
+  ionizationScattering: isotropic   % isotropic or anisotropic
+  LXCatFiles:            % cross section files
+    - CO2/CO2_LXCat.txt
+  effectiveCrossSectionPopulations:   % see doc
+    - CO2/CO2_effectivePop.txt
+  gasProperties:         % properties of the gases (S.I. Units)
+    mass: Databases/masses.txt
+    fraction:
+      - CO2 = 1.0 
+%     harmonicFrequency: Databases/harmonicFrequencies.txt
+%     anharmonicFrequency: Databases/anharmonicFrequencies.txt
+%     rotationalConstant: Databases/rotationalConstants.txt
+%     electricQuadrupoleMoment: Databases/quadrupoleMoment.txt
+    OPBParameter: Databases/OPBParameter.txt
+  stateProperties:       % properties of the states (S.I. Units except for the energy [eV])
+    statisticalWeight:
+      - CO2(X,v=000) = 1
+      - CO2(X,v=010) = 2
+      - CO2(X,v=020) = 3
+      - CO2(X,v=100) = 1
+      - CO2(X,v=001) = 1
+      - CO2(X,v=030+110) = 6
+      - CO2(X,v=040+120+011) = 10
+      - CO2(X,v=200) = 1
+      - CO2(X,v=050+210+130+021+101) = 16
+      - CO2(X,v=300) = 1
+      - CO2(X,v=060+220+140) = 15
+    population:
+      - CO2(X) = 1.0
+      - CO2(X,v=000) = 0.9254 % 0.9254 boltzmann @300K 0.9859 % boltzmann @195K 9.999926118e-1 % boltzmann @77K 
+      - CO2(X,v=010) = 0.0746 % 0.0746 boltzmann @300K 0.0141 % boltzmann @195K 7.38820000e-06 % boltzmann @77K
+  numericsMC:
+    nElectrons: 1E4                         % number of electrons in the ensemble
+    gasTemperatureEffect: smartActivation   % false, true or smartActivation
+    nIntegrationPoints: 3E4                 % number of integration points after the steady-state is reached
+%    nIntegratedSSTimes: 10                  % number of integrated steady-state times 
+%    maxCollisionsAfterSteadyState: 1E4      % maximum number of collisions per electron after the steady-state is reached
+%   relError:                                % tolerances for the relative errors of the MC results
+%      meanEnergy: 1E-3
+%      fluxDriftVelocity: 1E-2
+%      fluxDiffusionCoeffs: 1.5E-2
+%      powerBalance: 1E-4
+
+% --- configuration of the graphical user interface ---
+gui: 
+  isOn: true
+  plotOptions:
+    - MCTemporalInfo
+    - distributionFunctions
+    - swarmParameters
+    - powerBalance
+  terminalDisp:
+    - setup
+    - MCStatus
+
+% ---  configuration of the output files ---
+output: 
+  isOn: true
+  folder: swarm_CO2
+  dataFiles:
+    - eedf
+    - evdf
+    - swarmParameters
+    - rateCoefficients
+    - powerBalance
+    - MCSimDetails
+%    - MCTemporalInfo
+    - lookUpTable

@@ -1,0 +1,69 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   SWARM ANALYSIS ARGON   %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% --- configuration of the working conditions ---
+workingConditions:
+  reducedElecField: [10,20,50,100]            % in Td
+  gasPressure: 133.32                         % in Pa
+  gasTemperature: 300                         % in K
+
+% --- configuration of the electron kinetics ---
+electronKinetics:
+  isOn: true               % true or false (to activate of deactivate the electron Kinetics)
+  eedfType: boltzmannMC    % boltzmannMC or prescribedEedf
+  ionizationOperatorType: equalSharing % oneTakesAll, equalSharing or usingSDCS
+  ionizationScattering: isotropic   % isotropic or anisotropic
+  LXCatFiles:            % cross section files
+    - Argon/Ar_LXCat.txt                
+  gasProperties:        % properties of the gases (S.I. Units)
+    mass: Databases/masses.txt
+    fraction:
+      - Ar = 1
+    harmonicFrequency: Databases/harmonicFrequencies.txt
+    anharmonicFrequency: Databases/anharmonicFrequencies.txt
+    rotationalConstant: Databases/rotationalConstants.txt
+    electricQuadrupoleMoment: Databases/quadrupoleMoment.txt
+    OPBParameter: Databases/OPBParameter.txt
+  stateProperties:      % properties of the states (S.I. Units except for the energy [eV])
+    population:
+      - Ar(1S0) = 1
+    statisticalWeight:
+      - Ar(1S0) = 1
+  numericsMC:
+    nElectrons: 1E4                         % number of electrons in the ensemble
+    gasTemperatureEffect: smartActivation   % false, true or smartActivation
+    nIntegrationPoints: 5E4                 % number of integration points after the steady-state is reached
+%    nIntegratedSSTimes: 10                  % number of integrated steady-state times 
+%    maxCollisionsAfterSteadyState: 1E4      % maximum number of collisions per electron after the steady-state is reached
+%   relError:                                % tolerances for the relative errors of the MC results
+%      meanEnergy: 1E-3
+%      fluxDriftVelocity: 1E-2
+%      fluxDiffusionCoeffs: 2E-2
+%      powerBalance: 1E-4
+
+% --- configuration of the graphical user interface ---
+gui: 
+  isOn: true
+  plotOptions:
+    - MCTemporalInfo
+    - distributionFunctions
+    - swarmParameters
+    - powerBalance
+  terminalDisp:
+    - setup
+    - MCStatus
+
+% ---  configuration of the output files ---
+output: 
+  isOn: true
+  folder: swarm_Ar
+  dataFiles:
+    - eedf
+    - evdf
+    - swarmParameters
+    - rateCoefficients
+    - powerBalance
+    - MCSimDetails
+%    - MCTemporalInfo
+    - lookUpTable
