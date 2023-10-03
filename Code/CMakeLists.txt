@@ -45,3 +45,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 # GSL library
 find_package(GSL REQUIRED) 
 target_link_libraries(lokimc GSL::gsl GSL::gslcblas)
+
+# OpenMP library
+find_package(OpenMP REQUIRED)
+target_link_libraries(lokimc OpenMP::OpenMP_CXX)

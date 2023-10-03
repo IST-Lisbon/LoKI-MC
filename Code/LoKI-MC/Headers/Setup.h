@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <time.h>
 #include <chrono>
+#include <omp.h>
 
 //class Collision;
 
