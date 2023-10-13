@@ -12,7 +12,11 @@
 #if defined (_MSC_VER)  // Visual studio
     #define thread_local __declspec( thread )
 #else
-    #define thread_local __thread
+    // In C++17, we have defined a native implementation of thead_local.
+    // Aliasing thread_local -> __thread is a workaround for older compilers, but it causes
+    // this error with clang: type of thread-local variable has non-trivial destruction
+    //
+    //#define thread_local __thread
 #endif
 
 Eigen::ArrayXd MathFunctions::vectorToArray(std::vector<double> &vec){
