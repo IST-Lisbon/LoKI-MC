@@ -4,6 +4,7 @@
 #include "LoKI-MC/Headers/Constant.h"
 #include "LoKI-MC/Headers/Message.h"
 #include "LoKI-MC/Headers/MathFunctions.h"
+#include "LoKI-MC/Headers/AngularDistributionFunctions.h"
 #include "External/eigen-3.4.0/Eigen/Dense"
 #include <iostream>
 #include <vector>
@@ -157,7 +158,8 @@ void EedfGas::checkElasticCollisions(std::vector<Collision*> &collisionArray){
     					rawElasticCrossSection = elasticFromEffectiveCrossSection();
     					std::vector<EedfState*> productArray(1, eleState);
     					std::vector<double> productStoiCoeff(1,1);
-    					Collision::add(std::string("Elastic"), eleState, productArray, productStoiCoeff, false, 0.0, rawElasticCrossSection, collisionArray, false);
+    					Collision::add(std::string("Elastic"), eleState, productArray, productStoiCoeff, false, 0.0, rawElasticCrossSection, rawElasticCrossSection, collisionArray, false);
+                        collisionArray.back()->angularDistributionFunction = AngularDistributionFunctions::functionMap("isotropic",{});
     				}
     			}
     		}
@@ -191,7 +193,7 @@ std::vector<std::vector<double>> EedfGas::elasticFromEffectiveCrossSection(){
     }
 
     // initialize Elastic cross section as the Effective one
-    std::vector<std::vector<double>> rawElasticCrossSection = effectiveCollision->rawCrossSection;
+    std::vector<std::vector<double>> rawElasticCrossSection = effectiveCollision->rawMomTransfCrossSection;
 
     // find maximum ID of the states of the gas
     int maxID = stateArray[0]->ID;
@@ -270,14 +272,14 @@ std::vector<std::vector<double>> EedfGas::elasticFromEffectiveCrossSection(){
     		continue;
     	}
     	int rawElasticCrossSectionSize = rawElasticCrossSection[0].size();
-    	Eigen::ArrayXd collisionInterpolatedCrossSection = collision->interpolatedCrossSection(MathFunctions::vectorToArray(rawElasticCrossSection[0]));
+    	Eigen::ArrayXd collisionInterpolatedCrossSection = collision->interpolatedCrossSection("momTransf", MathFunctions::vectorToArray(rawElasticCrossSection[0]));
     	for (int i = 0; i < rawElasticCrossSectionSize; ++i){
     		rawElasticCrossSection[1][i] -= effectivePopulations[collision->target->ID] * collisionInterpolatedCrossSection[i];
     	}
 
     	//remove contributions to the effective due to the super-elastic mechanism (in case it is defined)
     	if (collision->isReverse){
-    		collisionInterpolatedCrossSection = collision->superElasticCrossSection(MathFunctions::vectorToArray(rawElasticCrossSection[0]));
+    		collisionInterpolatedCrossSection = collision->superElasticCrossSection("momTransf", MathFunctions::vectorToArray(rawElasticCrossSection[0]));
 	    	for (int i = 0; i < rawElasticCrossSectionSize; ++i){
 	    		rawElasticCrossSection[1][i] -= effectivePopulations[collision->productArray[0]->ID] * collisionInterpolatedCrossSection[i];
 	    	}

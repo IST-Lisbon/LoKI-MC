@@ -1,4 +1,5 @@
 #include "LoKI-MC/Headers/PrescribedEedf.h"
+#include "LoKI-MC/Headers/GeneralDefinitions.h"
 #include "LoKI-MC/Headers/Grid.h"
 #include "LoKI-MC/Headers/WorkingConditions.h"
 #include "LoKI-MC/Headers/Constant.h"
@@ -74,13 +75,13 @@ void PrescribedEedf::evaluateTotalAndElasticCrossSections(){
 			}
 			double temp;
 			// add collision cross section to the total momentum transfer cross section (also superelastic)
-			totalCrossSection += collision->crossSection * collision->target->density;
+			totalCrossSection += collision->momTransfCrossSection * collision->target->density;
 			if (collision->isReverse){
-				totalCrossSection += collision->superElasticCrossSection(Eigen::ArrayXd(0)) * collision->productArray[0]->density;
+				totalCrossSection += collision->superElasticCrossSection("momTransf", Eigen::ArrayXd(0)) * collision->productArray[0]->density;
 			}
 			// add elastic collision cross section to the total elastic cross section (weighted by the mass ratio)
 			if (collision->type == "Elastic"){
-				elasticCrossSection += collision->crossSection * massRatio * collision->target->density;
+				elasticCrossSection += collision->momTransfCrossSection * massRatio * collision->target->density;
 				continue;
 			}
 		}
@@ -174,7 +175,7 @@ void PrescribedEedf::evaluatePower(){
 			}
 			else if (collType == "Attachment"){
 				// evaluate cross section at cell positions
-				Eigen::ArrayXd cellCrossSection = (collision->crossSection.segment(1,N) + collision->crossSection.segment(0,N))*0.5;
+				Eigen::ArrayXd cellCrossSection = (collision->integralCrossSection.segment(1,N) + collision->integralCrossSection.segment(0,N))*0.5;
 				// evaluate departure cell
 				int lmin = std::floor(collision->threshold/energyStep)-1;
 				gasPower["attachmentIne"] -= factor * collision->target->density * energyStep * 
@@ -184,7 +185,7 @@ void PrescribedEedf::evaluatePower(){
 			// switch to lower case because of esthetical reasons
 			boost::algorithm::to_lower(collType);
 			// evaluate cross section at cell positions
-			Eigen::ArrayXd cellCrossSection = (collision->crossSection.segment(1,N) + collision->crossSection.segment(0,N))*0.5;
+			Eigen::ArrayXd cellCrossSection = (collision->integralCrossSection.segment(1,N) + collision->integralCrossSection.segment(0,N))*0.5;
 			// evaluate departure cell
 			int lmin = std::floor(collision->threshold/energyStep)-1;
 			// add contribution to the power due to the inelastic collisions
@@ -305,7 +306,7 @@ void PrescribedEedf::evaluateRateCoeff(){
 	rateCoeffAll.clear();
 	rateCoeffExtra.clear();
 
-	RateCoeffStruct auxRateCoeff;
+	GeneralDefinitions::RateCoeffStruct auxRateCoeff;
 
 	// evaluate rate coefficient for all collisions
 	for (auto& gas: gasArray){

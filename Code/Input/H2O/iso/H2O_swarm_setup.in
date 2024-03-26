@@ -1,0 +1,76 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   SWARM ANALYSIS WATER%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% --- configuration of the working conditions ---
+workingConditions:
+  reducedElecField: [10,30,100,700]           % in Td
+  gasPressure: 133.32                         % in Pa
+  gasTemperature: 300                         % in K
+  excitationFrequency: 0                      % in Hz
+  elecFieldAngle: 180                         % in degrees
+  reducedMagField: 0                          % in Hx
+
+% --- configuration of the electron kinetics ---
+electronKinetics:
+  isOn: true               % true or false 
+  eedfType: boltzmannMC    % boltzmannMC or prescribedEedf
+  ionizationOperatorType: usingSDCS % oneTakesAll, equalSharing, usingSDCS or randomUniform
+  LXCatFiles:            % cross section files
+    - H2O/iso/H2O_LXCat.txt
+    - H2O/iso/H2O_rot_LXCat.txt
+  gasProperties:        % properties of the gases (S.I. Units)
+    mass: Databases/masses.txt
+    fraction:
+      - H2O = 1
+    harmonicFrequency: Databases/harmonicFrequencies.txt
+    anharmonicFrequency: Databases/anharmonicFrequencies.txt
+    rotationalConstant: Databases/rotationalConstants.txt
+    electricQuadrupoleMoment: Databases/quadrupoleMoment.txt
+    OPBParameter: Databases/OPBParameter.txt
+  stateProperties:      % properties of the states (S.I. Units except for the energy [eV])
+    energy:
+      - H2O(X) = 0.0
+      - H2O/H2O_vibEnergy_Itikawa.txt
+      - H2O/H2O_rotEnergy_Tennyson.txt  
+    statisticalWeight:
+      - H2O(X) = 1.0
+      - H2O(X,v=*) = 1.0
+      - H2O(X,v=000,J=*) = rotationalDegeneracy_H2O 
+    population:
+      - H2O(X) = 1.0
+      - H2O(X,v=*) = boltzmannPopulation@gasTemperature
+      - H2O(X,v=000,J=*) = boltzmannPopulation@gasTemperature
+  numericsMC:
+    nElectrons: 1E4                         % number of electrons in the ensemble
+    gasTemperatureEffect: smartActivation   % false, true or smartActivation
+    nIntegrationPoints: 1E4                 % number of integration points after the steady-state is reached
+    nIntegratedSSTimes: 2                   % integrated time, given as multiples of the steady-state time
+
+% --- configuration of the graphical user interface ---
+gui: 
+  isOn: true
+  plotOptions:
+    - MCTemporalInfo
+    - MCTemporalInfo_periodic
+    - distributionFunctions
+    - swarmParameters
+    - powerBalance
+  terminalDisp:
+    - setup
+    - MCStatus
+
+% ---  configuration of the output files ---
+output: 
+  isOn: true
+  folder: swarm_H2O_iso_short
+  dataFiles:
+    - eedf
+    - evdf
+    - swarmParameters
+    - rateCoefficients
+    - powerBalance
+    - MCSimDetails
+%    - MCTemporalInfo
+    - MCTemporalInfo_periodic
+    - lookUpTable

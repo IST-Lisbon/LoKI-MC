@@ -10,7 +10,7 @@ set   autoscale                                      # scale axes automatically
 unset log y                                          # remove any log-scaling
 set log x
 unset label                                          # remove any previous labels
-set xlabel label_x 
+set xlabel "Electron temperature (eV)"
 set ylabel "Reduced transverse diffusion (1/(ms))"
 plot "LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat" using 1:2 notitle with linespoints
 
@@ -21,7 +21,7 @@ plot "LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat" using 1:3 notitle with 
 
 set origin 0.02,0.0
 set ylabel "Electron energy (eV)" 
-plot "LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat" using 1:7 title 'Characteristic' with linespoints, \
+plot "LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat" using 1:(1.5*$7) title '3/2*Characteristic' with linespoints, \
 	 "LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat" using 1:6 title 'Mean' with linespoints
 
 

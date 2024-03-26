@@ -1,0 +1,50 @@
+workingConditions:
+  gasPressure: 133.32                         % in Pa
+  gasTemperature: 300                         % in K
+  reducedElecField: 12                        % in Td
+  reducedMagField: [0,50,200,500]             % in Hx
+  elecFieldAngle: 180                         % in degrees
+  excitationFrequency: 0                      % in Hz
+electronKinetics:
+  isOn: true
+  eedfType: boltzmannMC
+  ionizationOperatorType: equalSharing
+  LXCatFiles:
+    - ReidRampGas/ReidRampGas_LXCat.txt
+  gasProperties:
+    mass:
+      - A = 4.000000*1.660539040e-27
+    fraction:
+      - A = 1
+  stateProperties:
+    population:
+      - A(gnd) = 1.0
+  numericsMC:
+    nElectrons: 1E5
+    gasTemperatureEffect: false
+    nIntegrationPoints: 1E4
+    nIntegratedSSTimes: 2
+gui:
+  isOn: true
+  plotOptions:
+    - MCTemporalInfo
+    - MCTemporalInfo_periodic
+    - distributionFunctions
+    - powerBalance
+    - swarmParameters
+  terminalDisp:
+    - setup
+    - MCStatus
+output:
+  isOn: true
+  folder: ReidRamp_B
+  dataFiles:
+    - eedf
+%    - evdf
+    - swarmParameters
+    - rateCoefficients
+    - powerBalance
+    - MCSimDetails
+%    - MCTemporalInfo
+    - MCTemporalInfo_periodic
+    - lookUpTable

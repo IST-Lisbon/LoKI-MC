@@ -29,7 +29,6 @@ set mytics
 show mytics
 plot "LoKI-MC/GnuplotFunctions/TempData/evdf.dat" using 1:2:3
 clear
-plot [GPVAL_DATA_X_MIN:GPVAL_DATA_X_MAX*2] [GPVAL_DATA_Y_MIN:GPVAL_DATA_Y_MAX] "LoKI-MC/GnuplotFunctions/TempData/evdf.dat" using 1:2:3 title 'EVDF'with image enhanced 
-set cbrange [GPVAL_DATA_X_MIN:GPVAL_DATA_X_MAX*2] [GPVAL_DATA_Y_MIN:GPVAL_DATA_Y_MAX]
+plot [GPVAL_DATA_X_MIN:GPVAL_DATA_X_MAX*2] [GPVAL_DATA_Y_MIN:GPVAL_DATA_Y_MAX] "LoKI-MC/GnuplotFunctions/TempData/evdf.dat" using 1:2:3 title 'EVDF' with image enhanced 
 
 unset multiplot

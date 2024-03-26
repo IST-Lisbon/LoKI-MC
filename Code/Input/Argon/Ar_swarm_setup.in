@@ -4,18 +4,20 @@
 
 % --- configuration of the working conditions ---
 workingConditions:
-  reducedElecField: [10,20,50,100]            % in Td
   gasPressure: 133.32                         % in Pa
   gasTemperature: 300                         % in K
+  reducedElecField: [20,50,100,300,1000]      % in Td
+  reducedMagField: 0                          % in Hx
+  elecFieldAngle: 180                         % in degrees
+  excitationFrequency: 0                      % in Hz
 
 % --- configuration of the electron kinetics ---
 electronKinetics:
-  isOn: true               % true or false (to activate of deactivate the electron Kinetics)
-  eedfType: boltzmannMC    % boltzmannMC or prescribedEedf
-  ionizationOperatorType: equalSharing % oneTakesAll, equalSharing or usingSDCS
-  ionizationScattering: isotropic   % isotropic or anisotropic
+  isOn: true             % true or false (to activate of deactivate the electron Kinetics)
+  eedfType: boltzmannMC    % boltzmann or prescribedEedf
+  ionizationOperatorType: equalSharing % oneTakesAll, equalSharing, usingSDCS, randomUniform
   LXCatFiles:            % cross section files
-    - Argon/Ar_LXCat.txt                
+    - Argon/Ar_LXCat.txt
   gasProperties:        % properties of the gases (S.I. Units)
     mass: Databases/masses.txt
     fraction:
@@ -30,26 +32,25 @@ electronKinetics:
       - Ar(1S0) = 1
     statisticalWeight:
       - Ar(1S0) = 1
+      - Ar(3P2) = 5
   numericsMC:
-    nElectrons: 1E4                         % number of electrons in the ensemble
-    gasTemperatureEffect: smartActivation   % false, true or smartActivation
-    nIntegrationPoints: 5E4                 % number of integration points after the steady-state is reached
-%    nIntegratedSSTimes: 10                  % number of integrated steady-state times 
-%    maxCollisionsAfterSteadyState: 1E4      % maximum number of collisions per electron after the steady-state is reached
-%   relError:                                % tolerances for the relative errors of the MC results
-%      meanEnergy: 1E-3
-%      fluxDriftVelocity: 1E-2
-%      fluxDiffusionCoeffs: 2E-2
-%      powerBalance: 1E-4
+    nElectrons: 2E4 
+    gasTemperatureEffect: smartActivation
+    nIntegrationPoints: 1E4
+    nIntegratedSSTimes: 3
+
+% --- configuration for the heavy species kinetics ---
+chemistry:
+  isOn: false
 
 % --- configuration of the graphical user interface ---
 gui: 
   isOn: true
   plotOptions:
     - MCTemporalInfo
+    - MCTemporalInfo_periodic
     - distributionFunctions
     - swarmParameters
-    - powerBalance
   terminalDisp:
     - setup
     - MCStatus
@@ -57,13 +58,14 @@ gui:
 % ---  configuration of the output files ---
 output: 
   isOn: true
-  folder: swarm_Ar
+  folder: swarm_Ar_short
   dataFiles:
     - eedf
-    - evdf
+%    - evdf
     - swarmParameters
     - rateCoefficients
     - powerBalance
-    - MCSimDetails
 %    - MCTemporalInfo
+    - MCTemporalInfo_periodic
+    - MCSimDetails
     - lookUpTable

@@ -1,8 +1,7 @@
 #ifndef __Output__
 #define __Output__
+#include "LoKI-MC/Headers/GeneralDefinitions.h"
 #include "LoKI-MC/Headers/WorkingConditions.h"
-#include "LoKI-MC/Headers/PrescribedEedf.h"
-#include "LoKI-MC/Headers/BoltzmannMC.h"
 #include "LoKI-MC/Headers/FieldInfo.h"
 #include "LoKI-MC/Headers/Parse.h"
 #include "External/eigen-3.4.0/Eigen/Dense"
@@ -32,6 +31,7 @@ public:
 	bool rateCoeffsIsToBeSaved = false;
 	bool lookUpTableIsToBeSaved = false; 
 	bool MCTemporalInfoIsToBeSaved = false;
+	bool MCTemporalInfoPeriodicIsToBeSaved = false;
 	bool MCSimDetailsIsToBeSaved = false;
 
 	std::string eedfType;
@@ -39,6 +39,7 @@ public:
 	bool enableElectronKinetics = false;
 	std::string variableCondition;
 	int numberOfJobs, currentJobID;
+	bool isCylindricallySymmetric;
 
 	// ----- class methods ----- //
 
@@ -88,6 +89,9 @@ public:
 			else if (dataFile == "MCTemporalInfo" && eedfType == "boltzmannMC"){
 				MCTemporalInfoIsToBeSaved = true;
 			}
+			else if (dataFile == "MCTemporalInfo_periodic" && eedfType == "boltzmannMC"){
+				MCTemporalInfoPeriodicIsToBeSaved = true;
+			}			
 			else if (dataFile == "MCSimDetails"){
 				MCSimDetailsIsToBeSaved = true;
 			}
@@ -99,6 +103,9 @@ public:
 		// save the electron kinetics
 		electronKinetics = setup->electronKinetics;
 		enableElectronKinetics = setup->enableElectronKinetics;
+
+		// check if is cylindrically symmetric
+		isCylindricallySymmetric = setup->workCond->isCylindricallySymmetric;
 
 		if (enableElectronKinetics){
 		    // connect the signal 'obtainedNewEedfSignal' to 'Output::electronKineticsSolution', in order to update the output each time a new eedf is found
@@ -113,19 +120,19 @@ public:
 
 		// save selected results of the electron kinetics
 		if (eedfIsToBeSaved){
-			saveEedf(electronKinetics->eedf, electronKinetics->efadf, electronKinetics->esadf, electronKinetics->energyGrid->cell);
+			saveEedf(electronKinetics->eedf, electronKinetics->efadf, electronKinetics->esadf, electronKinetics->energyGrid->cell, electronKinetics->integrationPhases, electronKinetics->eedf_periodic);
 		}
-		if (evdfIsToBeSaved){
+		if (evdfIsToBeSaved && isCylindricallySymmetric){
 			saveEvdf(electronKinetics->evdf, electronKinetics->radialVelocityCells, electronKinetics->axialVelocityCells);
 		}
 		if (powerBalanceIsToBeSaved){
 			savePower(electronKinetics->power);
 		}
 		if (swarmParamsIsToBeSaved){
-			saveSwarm(electronKinetics->swarmParam, electronKinetics->workCond->reducedElecField);
+			saveSwarm(electronKinetics->swarmParam, electronKinetics->workCond->reducedElecField, electronKinetics->workCond->elecFieldAngle, electronKinetics->workCond->reducedMagField, electronKinetics->workCond->excitationFrequency);
 		}
 		if (rateCoeffsIsToBeSaved){
-			saveRateCoefficients(electronKinetics->rateCoeffAll, electronKinetics->rateCoeffExtra);
+			saveRateCoefficients(electronKinetics->rateCoeffAll, electronKinetics->rateCoeffExtra, electronKinetics->integrationPhases, electronKinetics->rateCoeffAll_periodic, electronKinetics->rateCoeffExtra_periodic);
 		}
 		if (lookUpTableIsToBeSaved){
 			saveLookUpTable(electronKinetics->workCond, electronKinetics->power, electronKinetics->swarmParam);
@@ -133,7 +140,10 @@ public:
 		if (MCTemporalInfoIsToBeSaved){
 			saveMCTemporalInfo(electronKinetics->samplingTimes, electronKinetics->meanEnergies, electronKinetics->meanPositions, electronKinetics->positionCovariances, electronKinetics->meanVelocities);
 		}
-		if (MCSimDetailsIsToBeSaved){
+		if (MCTemporalInfoPeriodicIsToBeSaved){
+			saveMCTemporalInfoPeriodic(electronKinetics->integrationPhases, electronKinetics->meanEnergies_periodic, electronKinetics->fluxVelocities_periodic, electronKinetics->bulkVelocities_periodic, electronKinetics->fluxDiffusionCoeffs_periodic, electronKinetics->bulkDiffusionCoeffs_periodic);
+		}		
+		if (MCSimDetailsIsToBeSaved && eedfType == "boltzmannMC"){
 			saveMCSimDetails();
 		}
 	}
@@ -149,6 +159,15 @@ public:
 			else if (variableCondition == "reducedElecField"){
 				std::sprintf(cond, "%g",electronKinetics->workCond->reducedElecFieldArray[currentJobID]);
 			}
+			else if (variableCondition == "reducedMagField"){
+				std::sprintf(cond, "%g",electronKinetics->workCond->reducedMagFieldArray[currentJobID]);
+			}
+			else if (variableCondition == "elecFieldAngle"){
+				std::sprintf(cond, "%g",electronKinetics->workCond->elecFieldAngleArray[currentJobID]);
+			}
+			else if (variableCondition == "excitationFrequency"){
+				std::sprintf(cond, "%g",electronKinetics->workCond->excitationFrequencyArray[currentJobID]);
+			}
 			subFolder = std::string("/") + variableCondition + "_" + cond;
 			// create the subfolder directory
 			std::filesystem::create_directories(folder + subFolder);
@@ -158,7 +177,7 @@ public:
 		}
 	}
 
-	void saveEedf(Eigen::ArrayXd &eedf, Eigen::ArrayXd &efadf, Eigen::ArrayXd &esadf , Eigen::ArrayXd &energy){
+	void saveEedf(Eigen::ArrayXd &eedf, Eigen::ArrayXd &efadf, Eigen::ArrayXd &esadf , Eigen::ArrayXd &energy, Eigen::ArrayXd &integrationPhases, Eigen::ArrayXXd &eedf_periodic){
 		
 		// create file name
 		std::string fileName = folder + subFolder + "/eedf.txt";
@@ -167,7 +186,7 @@ public:
 		FILE* fileID = std::fopen(fileName.c_str(), "w");
 		int eedfSize = eedf.size();
 
-		if (eedfType == "prescribedEedf"){
+		if (eedfType == "prescribedEedf" || (eedfType == "boltzmannMC"  && !isCylindricallySymmetric)){
 			// save information into the file
 			std::fprintf(fileID, "Energy(eV)           EEDF(eV^-(3/2))\n");
 			for (int i = 0; i < eedfSize; ++i){
@@ -182,7 +201,23 @@ public:
 			}
 		}
 
+		// close file
 		std::fclose(fileID);
+
+		// when there is AC E-field, save eedfs along the period
+		if (electronKinetics->workCond->excitationFrequency != 0){
+			fileID =  std::fopen((folder + subFolder + "/eedf_periodic.txt").c_str(), "w");
+			int nIntegrationPhases = integrationPhases.size();
+			// each line contains an eedf of the corresponding phase
+			for (int phaseIdx = 0; phaseIdx < nIntegrationPhases; ++phaseIdx){
+				std::fprintf(fileID, "%-20.14e ", integrationPhases[phaseIdx]);
+				for (int i = 0; i < eedfSize; ++i){
+					std::fprintf(fileID, "%-20.14e ", eedf_periodic(phaseIdx, i));
+				}
+				std::fprintf(fileID, "\n");
+			}		
+			std::fclose(fileID);
+		}
 	}
 
 	void saveEvdf(Eigen::ArrayXXd &evdf, Eigen::ArrayXd &radialVelocityCells, Eigen::ArrayXd &axialVelocityCells){
@@ -201,7 +236,7 @@ public:
 		std::fclose(fileID);
 	}
 
-	void saveSwarm(std::map<std::string,double> &swarmParam, double reducedElecField){
+	void saveSwarm(std::map<std::string,double> &swarmParam, double reducedElecField, double elecFieldAngle, double reducedMagField, double excitationFrequency){
 		// create file name
 		std::string fileName = folder + subFolder + "/swarmParameters.txt";
 		
@@ -222,56 +257,94 @@ public:
 		}
 		else if (eedfType == "boltzmannMC"){
 			std::fprintf(fileID, "                    Reduced electric field = %#.14e (Td)\n", reducedElecField);
+			std::fprintf(fileID, "                      Electric field angle = %#.14e (Degrees)\n", elecFieldAngle);
+			std::fprintf(fileID, "                      Excitation frequency = %#.14e (Hz)\n", excitationFrequency);
+			std::fprintf(fileID, "                    Reduced magnetic field = %#.14e (Hx)\n", reducedMagField);
 			std::fprintf(fileID, "\n%s\n\n", (std::string(35,'*') + " " + "Flux parameters" + " " + std::string(35,'*')).c_str() );
-			std::fprintf(fileID, "  Reduced transverse diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["fluxRedTransvDiffCoeff"], swarmParam["fluxRedTransvDiffCoeffError"]/swarmParam["fluxRedTransvDiffCoeff"]*100.0);
-			std::fprintf(fileID, "Reduced longitudinal diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["fluxRedLongDiffCoeff"], swarmParam["fluxRedLongDiffCoeffError"]/swarmParam["fluxRedLongDiffCoeff"]*100.0);
-			std::fprintf(fileID, "              Reduced mobility coefficient = %#.14e (1/(msV)); Rel. std: %-9.3e%%\n", swarmParam["fluxRedMobCoeff"], swarmParam["fluxRedMobCoeffError"]/swarmParam["fluxRedMobCoeff"]*100.0);
-			std::fprintf(fileID, "                     Characteristic energy = %#.14e (eV)     ; Rel. std: %-9.3e%%\n", swarmParam["fluxCharacEnergy"], swarmParam["fluxCharacEnergyError"]/swarmParam["fluxCharacEnergy"]*100.0);
-			std::fprintf(fileID, "              Reduced Townsend coefficient = %#.14e (m2)\n", swarmParam["fluxRedTownsendCoeff"]);
-			std::fprintf(fileID, "            Reduced attachment coefficient = %#.14e (m2)\n", swarmParam["fluxRedAttCoeff"]);
-			std::fprintf(fileID, "\n");
 			Eigen::ArrayXd velRelErr = electronKinetics->averagedFluxDriftVelocityError/Eigen::abs(electronKinetics->averagedFluxDriftVelocity)*100.0;
 			std::fprintf(fileID, "                                   | v_x |   | %-15.8e |                       | %-9.3e%% |\n", electronKinetics->averagedFluxDriftVelocity[0], velRelErr[0]);
 			std::fprintf(fileID, "                                   | v_y | = | %-15.8e |  (m/s)    ; Rel. std: | %-9.3e%% |\n", electronKinetics->averagedFluxDriftVelocity[1], velRelErr[1]);
 			std::fprintf(fileID, "                                   | v_z |   | %-15.8e |                       | %-9.3e%% |\n\n", electronKinetics->averagedFluxDriftVelocity[2], velRelErr[2]);
-			Eigen::ArrayXd redDiff = electronKinetics->averagedFluxDiffusionCoeffs*electronKinetics->totalGasDensity, redDiffRelErr = electronKinetics->averagedFluxDiffusionCoeffsError/Eigen::abs(electronKinetics->averagedFluxDiffusionCoeffs)*100.0;
-			std::fprintf(fileID, "                      | ND_xx ND_xy ND_xz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff[0], redDiff[1], redDiff[2], redDiffRelErr[0], redDiffRelErr[1], redDiffRelErr[2]);
-			std::fprintf(fileID, "                      | ND_yx ND_yy ND_yz| = | %-15.8e %-15.8e %-15.8e | (1/(ms)) ; Rel. std: | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff[3], redDiff[4], redDiff[5], redDiffRelErr[3], redDiffRelErr[4], redDiffRelErr[5]);
-			std::fprintf(fileID, "                      | ND_zx ND_zy ND_zz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff[6], redDiff[7], redDiff[8], redDiffRelErr[6], redDiffRelErr[7], redDiffRelErr[8]);
+			Eigen::Matrix3d redDiff = electronKinetics->averagedFluxDiffusionCoeffs*electronKinetics->totalGasDensity, redDiffRelErr = electronKinetics->averagedFluxDiffusionCoeffsError.array()/Eigen::abs(electronKinetics->averagedFluxDiffusionCoeffs.array())*100.0;
+			std::fprintf(fileID, "                      | ND_xx ND_xy ND_xz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff(0,0), redDiff(0,1), redDiff(0,2), redDiffRelErr(0,0), redDiffRelErr(0,1), redDiffRelErr(0,2));
+			std::fprintf(fileID, "                      | ND_yx ND_yy ND_yz| = | %-15.8e %-15.8e %-15.8e | (1/(ms)) ; Rel. std: | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff(1,0), redDiff(1,1), redDiff(1,2), redDiffRelErr(1,0), redDiffRelErr(1,1), redDiffRelErr(1,2));
+			std::fprintf(fileID, "                      | ND_zx ND_zy ND_zz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n\n", redDiff(2,0), redDiff(2,1), redDiff(2,2), redDiffRelErr(2,0), redDiffRelErr(2,1), redDiffRelErr(2,2));
+			std::fprintf(fileID, "Parameters after rotation to a ref. frame (x'y'z'), where E-field is along z'\n\n");
+			Eigen::ArrayXd rotatedVelRelErr = electronKinetics->rotatedAveragedFluxDriftVelocityError/Eigen::abs(electronKinetics->rotatedAveragedFluxDriftVelocity)*100.0;
+			std::fprintf(fileID, "                                  | v_x' |   | %-15.8e |                       | %-9.3e%% |\n", electronKinetics->rotatedAveragedFluxDriftVelocity[0], rotatedVelRelErr[0]);
+			std::fprintf(fileID, "                                  | v_y' | = | %-15.8e |  (m/s)    ; Rel. std: | %-9.3e%% |\n", electronKinetics->rotatedAveragedFluxDriftVelocity[1], rotatedVelRelErr[1]);
+			std::fprintf(fileID, "                                  | v_z' |   | %-15.8e |                       | %-9.3e%% |\n\n", electronKinetics->rotatedAveragedFluxDriftVelocity[2], rotatedVelRelErr[2]);
+			Eigen::Matrix3d rotatedRedDiff = electronKinetics->rotatedAveragedFluxDiffusionCoeffs*electronKinetics->totalGasDensity, rotatedRedDiffRelErr = electronKinetics->rotatedAveragedFluxDiffusionCoeffsError.array()/Eigen::abs(electronKinetics->rotatedAveragedFluxDiffusionCoeffs.array())*100.0;
+			std::fprintf(fileID, "                | ND_x'x' ND_x'y' ND_x'z'|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", rotatedRedDiff(0,0), rotatedRedDiff(0,1), rotatedRedDiff(0,2), rotatedRedDiffRelErr(0,0), rotatedRedDiffRelErr(0,1), rotatedRedDiffRelErr(0,2));
+			std::fprintf(fileID, "                | ND_y'x' ND_y'y' ND_y'z'| = | %-15.8e %-15.8e %-15.8e | (1/(ms)) ; Rel. std: | %-9.3e%% %-9.3e%% %-9.3e%% |\n", rotatedRedDiff(1,0), rotatedRedDiff(1,1), rotatedRedDiff(1,2), rotatedRedDiffRelErr(1,0), rotatedRedDiffRelErr(1,1), rotatedRedDiffRelErr(1,2));
+			std::fprintf(fileID, "                | ND_z'x' ND_z'y' ND_z'z'|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n\n", rotatedRedDiff(2,0), rotatedRedDiff(2,1), rotatedRedDiff(2,2), rotatedRedDiffRelErr(2,0), rotatedRedDiffRelErr(2,1), rotatedRedDiffRelErr(2,2));						
+			std::fprintf(fileID, "  Reduced transverse diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["fluxRedTransvDiffCoeff"], swarmParam["fluxRedTransvDiffCoeffError"]/swarmParam["fluxRedTransvDiffCoeff"]*100.0);
+			std::fprintf(fileID, "Reduced longitudinal diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["fluxRedLongDiffCoeff"], swarmParam["fluxRedLongDiffCoeffError"]/swarmParam["fluxRedLongDiffCoeff"]*100.0);
+			if (reducedMagField == 0 && excitationFrequency == 0){
+				std::fprintf(fileID, "              Reduced mobility coefficient = %#.14e (1/(msV)); Rel. std: %-9.3e%%\n", swarmParam["fluxRedMobCoeff"], swarmParam["fluxRedMobCoeffError"]/swarmParam["fluxRedMobCoeff"]*100.0);
+				std::fprintf(fileID, "                     Characteristic energy = %#.14e (eV)     ; Rel. std: %-9.3e%%\n", swarmParam["fluxCharacEnergy"], swarmParam["fluxCharacEnergyError"]/swarmParam["fluxCharacEnergy"]*100.0);
+			}
+			if (excitationFrequency == 0){
+				std::fprintf(fileID, "              Reduced Townsend coefficient = %#.14e (m2)\n", swarmParam["fluxRedTownsendCoeff"]);
+				std::fprintf(fileID, "            Reduced attachment coefficient = %#.14e (m2)\n", swarmParam["fluxRedAttCoeff"]);
+			}
+
 			std::fprintf(fileID, "\n%s\n\n", (std::string(35,'*') + " " + "Bulk parameters" + " " + std::string(35,'*')).c_str() );
-			std::fprintf(fileID, "  Reduced transverse diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["bulkRedTransvDiffCoeff"], swarmParam["bulkRedTransvDiffCoeffError"]/swarmParam["bulkRedTransvDiffCoeff"]*100.0);
-			std::fprintf(fileID, "Reduced longitudinal diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["bulkRedLongDiffCoeff"], swarmParam["bulkRedLongDiffCoeffError"]/swarmParam["bulkRedLongDiffCoeff"]*100.0);
-			std::fprintf(fileID, "              Reduced mobility coefficient = %#.14e (1/(msV)); Rel. std: %-9.3e%%\n", swarmParam["bulkRedMobCoeff"], swarmParam["bulkRedMobCoeffError"]/swarmParam["bulkRedMobCoeff"]*100.0);
-			std::fprintf(fileID, "                     Characteristic energy = %#.14e (eV)     ; Rel. std: %-9.3e%%\n", swarmParam["bulkCharacEnergy"], swarmParam["bulkCharacEnergyError"]/swarmParam["bulkCharacEnergy"]*100.0);
-			std::fprintf(fileID, "              Reduced Townsend coefficient = %#.14e (m2)\n", swarmParam["bulkRedTownsendCoeff"]);
-			std::fprintf(fileID, "            Reduced attachment coefficient = %#.14e (m2)\n", swarmParam["bulkRedAttCoeff"]);
-			std::fprintf(fileID, "\n");
 			velRelErr = electronKinetics->averagedBulkDriftVelocityError/Eigen::abs(electronKinetics->averagedBulkDriftVelocity)*100.0;
 			std::fprintf(fileID, "                                   | v_x |   | %-15.8e |                       | %-9.3e%% |\n", electronKinetics->averagedBulkDriftVelocity[0], velRelErr[0]);
 			std::fprintf(fileID, "                                   | v_y | = | %-15.8e |  (m/s)    ; Rel. std: | %-9.3e%% |\n", electronKinetics->averagedBulkDriftVelocity[1], velRelErr[1]);
 			std::fprintf(fileID, "                                   | v_z |   | %-15.8e |                       | %-9.3e%% |\n\n", electronKinetics->averagedBulkDriftVelocity[2], velRelErr[2]);
-			redDiff = electronKinetics->averagedBulkDiffusionCoeffs*electronKinetics->totalGasDensity; redDiffRelErr = electronKinetics->averagedBulkDiffusionCoeffsError/Eigen::abs(electronKinetics->averagedBulkDiffusionCoeffs)*100.0;
-			std::fprintf(fileID, "                      | ND_xx ND_xy ND_xz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff[0], redDiff[1], redDiff[2], redDiffRelErr[0], redDiffRelErr[1], redDiffRelErr[2]);
-			std::fprintf(fileID, "                      | ND_yx ND_yy ND_yz| = | %-15.8e %-15.8e %-15.8e | (1/(ms)) ; Rel. std: | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff[3], redDiff[4], redDiff[5], redDiffRelErr[3], redDiffRelErr[4], redDiffRelErr[5]);
-			std::fprintf(fileID, "                      | ND_zx ND_zy ND_zz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff[6], redDiff[7], redDiff[8], redDiffRelErr[6], redDiffRelErr[7], redDiffRelErr[8]);
+			redDiff = electronKinetics->averagedBulkDiffusionCoeffs*electronKinetics->totalGasDensity, redDiffRelErr = electronKinetics->averagedBulkDiffusionCoeffsError.array()/Eigen::abs(electronKinetics->averagedBulkDiffusionCoeffs.array())*100.0;
+			std::fprintf(fileID, "                      | ND_xx ND_xy ND_xz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff(0,0), redDiff(0,1), redDiff(0,2), redDiffRelErr(0,0), redDiffRelErr(0,1), redDiffRelErr(0,2));
+			std::fprintf(fileID, "                      | ND_yx ND_yy ND_yz| = | %-15.8e %-15.8e %-15.8e | (1/(ms)) ; Rel. std: | %-9.3e%% %-9.3e%% %-9.3e%% |\n", redDiff(1,0), redDiff(1,1), redDiff(1,2), redDiffRelErr(1,0), redDiffRelErr(1,1), redDiffRelErr(1,2));
+			std::fprintf(fileID, "                      | ND_zx ND_zy ND_zz|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n\n", redDiff(2,0), redDiff(2,1), redDiff(2,2), redDiffRelErr(2,0), redDiffRelErr(2,1), redDiffRelErr(2,2));
+			std::fprintf(fileID, "Parameters after rotation to a ref. frame (x'y'z'), where E-field is along z'\n\n");
+			rotatedVelRelErr = electronKinetics->rotatedAveragedBulkDriftVelocityError/Eigen::abs(electronKinetics->rotatedAveragedBulkDriftVelocity)*100.0;
+			std::fprintf(fileID, "                                  | v_x' |   | %-15.8e |                       | %-9.3e%% |\n", electronKinetics->rotatedAveragedBulkDriftVelocity[0], rotatedVelRelErr[0]);
+			std::fprintf(fileID, "                                  | v_y' | = | %-15.8e |  (m/s)    ; Rel. std: | %-9.3e%% |\n", electronKinetics->rotatedAveragedBulkDriftVelocity[1], rotatedVelRelErr[1]);
+			std::fprintf(fileID, "                                  | v_z' |   | %-15.8e |                       | %-9.3e%% |\n\n", electronKinetics->rotatedAveragedBulkDriftVelocity[2], rotatedVelRelErr[2]);
+			rotatedRedDiff = electronKinetics->rotatedAveragedBulkDiffusionCoeffs*electronKinetics->totalGasDensity, rotatedRedDiffRelErr = electronKinetics->rotatedAveragedBulkDiffusionCoeffsError.array()/Eigen::abs(electronKinetics->rotatedAveragedBulkDiffusionCoeffs.array())*100.0;
+			std::fprintf(fileID, "                | ND_x'x' ND_x'y' ND_x'z'|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n", rotatedRedDiff(0,0), rotatedRedDiff(0,1), rotatedRedDiff(0,2), rotatedRedDiffRelErr(0,0), rotatedRedDiffRelErr(0,1), rotatedRedDiffRelErr(0,2));
+			std::fprintf(fileID, "                | ND_y'x' ND_y'y' ND_y'z'| = | %-15.8e %-15.8e %-15.8e | (1/(ms)) ; Rel. std: | %-9.3e%% %-9.3e%% %-9.3e%% |\n", rotatedRedDiff(1,0), rotatedRedDiff(1,1), rotatedRedDiff(1,2), rotatedRedDiffRelErr(1,0), rotatedRedDiffRelErr(1,1), rotatedRedDiffRelErr(1,2));
+			std::fprintf(fileID, "                | ND_z'x' ND_z'y' ND_z'z'|   | %-15.8e %-15.8e %-15.8e |                      | %-9.3e%% %-9.3e%% %-9.3e%% |\n\n", rotatedRedDiff(2,0), rotatedRedDiff(2,1), rotatedRedDiff(2,2), rotatedRedDiffRelErr(2,0), rotatedRedDiffRelErr(2,1), rotatedRedDiffRelErr(2,2));						
+			std::fprintf(fileID, "  Reduced transverse diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["bulkRedTransvDiffCoeff"], swarmParam["bulkRedTransvDiffCoeffError"]/swarmParam["bulkRedTransvDiffCoeff"]*100.0);
+			std::fprintf(fileID, "Reduced longitudinal diffusion coefficient = %#.14e (1/(ms)) ; Rel. std: %-9.3e%%\n", swarmParam["bulkRedLongDiffCoeff"], swarmParam["bulkRedLongDiffCoeffError"]/swarmParam["bulkRedLongDiffCoeff"]*100.0);
+			if (reducedMagField == 0 && excitationFrequency == 0){
+				std::fprintf(fileID, "              Reduced mobility coefficient = %#.14e (1/(msV)); Rel. std: %-9.3e%%\n", swarmParam["bulkRedMobCoeff"], swarmParam["bulkRedMobCoeffError"]/swarmParam["bulkRedMobCoeff"]*100.0);
+				std::fprintf(fileID, "                     Characteristic energy = %#.14e (eV)     ; Rel. std: %-9.3e%%\n", swarmParam["bulkCharacEnergy"], swarmParam["bulkCharacEnergyError"]/swarmParam["bulkCharacEnergy"]*100.0);
+			}
+			if (excitationFrequency == 0){
+				std::fprintf(fileID, "              Reduced Townsend coefficient = %#.14e (m2)\n", swarmParam["bulkRedTownsendCoeff"]);
+				std::fprintf(fileID, "            Reduced attachment coefficient = %#.14e (m2)\n", swarmParam["bulkRedAttCoeff"]);
+			}
+			std::fprintf(fileID, "\n%s\n\n", (std::string(15,'*') + " " + "Effective SST parameters deduced from the TOF simulation" + " " + std::string(15,'*')).c_str() );
+			std::fprintf(fileID, "                     SST averaged velocity = %#.14e (m/s)\n", swarmParam["effSSTAverageVelocity"]);
+			std::fprintf(fileID, "          SST reduced Townsend coefficient = %#.14e (m/s)\n", swarmParam["effSSTRedTownsendCoeff"]);
+			std::fprintf(fileID, "        SST reduced attachment coefficient = %#.14e (m/s)\n", swarmParam["effSSTRedAttCoeff"]);
 			std::fprintf(fileID, "\n%s\n\n", (std::string(35,'*') + " " + "Energy parameters" + " " + std::string(35,'*')).c_str() );
 			std::fprintf(fileID, "                               Mean energy = %#.14e (eV) ; Rel. std: %-9.3e%%\n", swarmParam["meanEnergy"], swarmParam["meanEnergyError"]/swarmParam["meanEnergy"]*100.0);
 			std::fprintf(fileID, "                      Electron temperature = %#.14e (eV) ; Rel. std: %-9.3e%%\n", swarmParam["Te"], swarmParam["TeError"]/swarmParam["Te"]*100.0);
 			std::fprintf(fileID, "\n%s\n\n", (std::string(27,'*') + " " + "Parameters obtained from the EEDF" + " " + std::string(27,'*')).c_str() );
 			std::fprintf(fileID, "                    Ionization coefficient = %#.14e (m-3)\n", swarmParam["totalIonRateCoeff"]);
 			std::fprintf(fileID, "                    Attachment coefficient = %#.14e (m-3)\n", swarmParam["totalAttRateCoeff"]);
+			std::fprintf(fileID, "               Momentum-transfer frequency = %#.14e (s-1)\n", swarmParam["momTransfFreq"]);
+			std::fprintf(fileID, "               Energy-relaxation frequency = %#.14e (s-1)\n", swarmParam["energyRelaxFreq"]);			
 			std::fprintf(fileID, "      Reduced energy diffusion coefficient = %#.14e (eV/(ms))\n", swarmParam["redDiffCoeffEnergy_eedf"]);
 			std::fprintf(fileID, "                   Reduced energy mobility = %#.14e (eV/(msV))\n", swarmParam["redMobCoeffEnergy_eedf"]);
 			std::fprintf(fileID, "             Reduced diffusion coefficient = %#.14e (1/(ms))\n", swarmParam["redDiffCoeff_eedf"]);
-			std::fprintf(fileID, "                          Reduced mobility = %#.14e (1/(msV))\n", swarmParam["redMobCoeff_DC_eedf"]);
+			std::fprintf(fileID, "        DC non-magnetized reduced mobility = %#.14e (1/(msV))\n", swarmParam["redMobCoeff_DC_eedf"]);
 			std::fprintf(fileID, "                     Characteristic energy = %#.14e (eV)\n\n", swarmParam["characEnergy_eedf"]);
+			/*std::fprintf(fileID, "                   Reduced mobility matrix :\n");
+			std::fprintf(fileID, "                      | NM_xx NM_xy NM_xz|   | %-15.8e %-15.8e %-15.8e |        | %-15.8e %-15.8e %-15.8e |\n", swarmParam["redMobCoeff_xx_real_eedf"], swarmParam["redMobCoeff_xy_real_eedf"], 0.0, swarmParam["redMobCoeff_xx_imag_eedf"], swarmParam["redMobCoeff_xy_imag_eedf"], 0.0);
+			std::fprintf(fileID, "                      | NM_yx NM_yy NM_yz| = | %-15.8e %-15.8e %-15.8e |  + i   | %-15.8e %-15.8e %-15.8e | (1/(msV))\n", -swarmParam["redMobCoeff_xy_real_eedf"], swarmParam["redMobCoeff_xx_real_eedf"], 0.0, -swarmParam["redMobCoeff_xy_imag_eedf"], swarmParam["redMobCoeff_xx_imag_eedf"], 0.0);
+			std::fprintf(fileID, "                      | NM_zx NM_zy NM_zz|   | %-15.8e %-15.8e %-15.8e |        | %-15.8e %-15.8e %-15.8e |\n", 0.0,0.0,swarmParam["redMobCoeff_zz_real_eedf"],0.0,0.0,swarmParam["redMobCoeff_zz_imag_eedf"]);*/
 		}
 
 		// close file
 		std::fclose(fileID);
 	}
 
-	void savePower(PowerStruct &power){
+	void savePower(GeneralDefinitions::PowerStruct &power){
 		// create file name
 		std::string fileName = folder + subFolder + "/powerBalance.txt";
 		
@@ -343,7 +416,7 @@ public:
 		std::fclose(fileID);
 	}
 
-	void saveRateCoefficients(std::vector<RateCoeffStruct> &rateCoeffAll, std::vector<RateCoeffStruct> &rateCoeffExtra){
+	void saveRateCoefficients(std::vector<GeneralDefinitions::RateCoeffStruct> &rateCoeffAll, std::vector<GeneralDefinitions::RateCoeffStruct> &rateCoeffExtra, Eigen::ArrayXd &integrationPhases, std::vector<std::vector<GeneralDefinitions::RateCoeffStruct>> &rateCoeffAll_periodic, std::vector<std::vector<GeneralDefinitions::RateCoeffStruct>> &rateCoeffExtra_periodic){
 		// create file name
 		std::string fileName = folder + subFolder + "/rateCoefficients.txt";
 
@@ -403,10 +476,68 @@ public:
 
 			// close file
 			std::fclose(fileID);
+
+			// if there is an AC E-field, save rate-coeffs along the period
+			double angularFrequency = electronKinetics->workCond->excitationFrequency*2.0*M_PI;
+			if (angularFrequency != 0){
+				fileID = std::fopen((folder + subFolder + "/rateCoefficients_periodic.txt").c_str(), "w");
+				std::fprintf(fileID, "%s\n# %-76s #\n", std::string(80, '#').c_str(), "ID   Description");
+				std::string rateCoeffHeader, strAux; 
+				std::vector<std::string> vars = {"Phase(rad)", "Phase(s)","E/N(Td)"};
+				for (auto var: vars){
+					rateCoeffHeader += var + std::string(22-var.size(), ' ');
+				}
+				for (auto rateCoeff: electronKinetics->rateCoeffAll){
+					// we sum 1 to the ID so as to have the same ID as in Matlab
+					int ID = rateCoeff.collID+1;
+					std::fprintf(fileID, "# %-4d %-71s #\n", ID, rateCoeff.collDescription.c_str());
+					strAux = std::string("R") + std::to_string(ID) + "_ine(m3/s)";
+					rateCoeffHeader += strAux + std::string(22-strAux.size(), ' ');
+					if (rateCoeff.supRate != Constant::NON_DEF){
+						strAux = std::string("R") + std::to_string(ID) + "_sup(m3/s)";
+						rateCoeffHeader += strAux + std::string(22-strAux.size(), ' ');					
+					}
+				}
+				std::fprintf(fileID, "#%s#\n# %-76s #\n#%s#\n# %-76s #\n", std::string(78, ' ').c_str(), "*** Extra rate coefficients ***", std::string(78, '#').c_str(), "ID   Description");
+				for (auto rateCoeff: electronKinetics->rateCoeffExtra){
+					// we sum 1 to the ID so as to have the same ID as in Matlab
+					int ID = rateCoeff.collID+1;
+					std::fprintf(fileID, "# %-4d %-71s #\n", ID, rateCoeff.collDescription.c_str());
+					strAux = std::string("R") + std::to_string(ID) + "_ine(m3/s)";
+					rateCoeffHeader += strAux + std::string(22-strAux.size(), ' ');
+					if (rateCoeff.supRate != Constant::NON_DEF){
+						strAux = std::string("R") + std::to_string(ID) + "_sup(m3/s)";
+						rateCoeffHeader += strAux + std::string(22-strAux.size(), ' ');					
+					}
+				}
+				std::fprintf(fileID, "%s\n\n%s\n", std::string(80,'#').c_str(), rateCoeffHeader.c_str());
+
+				double EN = electronKinetics->workCond->reducedElecField;
+				int nIntegrationPhases = integrationPhases.size();
+				for (int phaseIdx = 0; phaseIdx < nIntegrationPhases; ++phaseIdx){
+				    // append new line with rate-coeff data for the corresponding phase
+				    std::fprintf(fileID, "%-21.14e %-21.14e %-21.14e ", integrationPhases[phaseIdx], integrationPhases[phaseIdx]/angularFrequency, std::sqrt(2)*EN*std::cos(integrationPhases[phaseIdx]));
+					for (auto rateCoeff: rateCoeffAll_periodic[phaseIdx]){
+						std::fprintf(fileID, "%-21.14e ", rateCoeff.ineRate);
+						if (rateCoeff.supRate != Constant::NON_DEF){
+							std::fprintf(fileID, "%-21.14e ", rateCoeff.supRate);				
+						}
+					}
+					for (auto rateCoeff: rateCoeffExtra_periodic[phaseIdx]){
+						std::fprintf(fileID, "%-21.14e ", rateCoeff.ineRate);
+						if (rateCoeff.supRate != Constant::NON_DEF){
+							std::fprintf(fileID, "%-21.14e ", rateCoeff.supRate);				
+						}
+					}	     
+					std::fprintf(fileID, "\n");					
+				}			
+
+				std::fclose(fileID);
+			}
 		}
 	}
 
-	void saveLookUpTable(WorkingConditions* &workCond, PowerStruct &power, std::map<std::string,double> &swarmParam){
+	void saveLookUpTable(WorkingConditions* &workCond, GeneralDefinitions::PowerStruct &power, std::map<std::string,double> &swarmParam){
 		static bool initialized = false;
 
 		if (eedfType == "prescribedEedf"){
@@ -440,7 +571,19 @@ public:
 			std::string fileName5 = folder + "/lookUpTableEGrid.txt";
 
 			if (!initialized){
-				std::string varCond = "RedElecField(Td)      ";				
+				std::string varCond;
+				if (variableCondition == "reducedElecField"){
+					varCond = "RedElecField(Td)      ";
+				}
+				else if (variableCondition == "reducedMagField"){
+					varCond = "RedMagField(Hx)       ";
+				}
+				else if (variableCondition == "elecFieldAngle"){
+					varCond = "elecFieldAngle(degr)  ";
+				}
+				else if (variableCondition == "excitationFrequency"){
+					varCond = "ExcitationFreq(Hz)    ";
+				}				
 				// ---- open files ---- //
 				FILE* fileID1 = std::fopen(fileName1.c_str(), "w");
 				FILE* fileID2 = std::fopen(fileName2.c_str(), "w");
@@ -452,7 +595,7 @@ public:
 
 				// swarm file (1)
 				std::vector<std::string> swarmVars;
-				swarmVars = {"FluxND_xx(1/(ms))","FluxND_yy(1/(ms))","FluxND_zz(1/(ms))","FluxV_x(m/s)","FluxV_y(m/s)","FluxV_z(m/s)","BulkND_xx(1/(ms))","BulkND_yy(1/(ms))","BulkND_zz(1/(ms))","BulkV_x(m/s)","BulkV_y(m/s)","BulkV_z(m/s)","MeanE(eV)","EleTemp(eV)","IonCoeff(m3/s)","AttCoeff(m3/s)","RedDiffE_eedf(eV/(ms))","RedMobE_eedf(eV/(msV))","RedDiff_eedf(1/(ms))", "RedMob_DC_eedf(1/(msV))","CharacEnergy_eedf(eV)"};
+				swarmVars = {"FluxND_xx(1/(ms))","FluxND_xy(1/(ms))","FluxND_xz(1/(ms))","FluxND_yx(1/(ms))","FluxND_yy(1/(ms))","FluxND_yz(1/(ms))","FluxND_zx(1/(ms))","FluxND_zy(1/(ms))","FluxND_zz(1/(ms))","FluxV_x(m/s)","FluxV_y(m/s)","FluxV_z(m/s)","BulkND_xx(1/(ms))","BulkND_xy(1/(ms))","BulkND_xz(1/(ms))","BulkND_yx(1/(ms))","BulkND_yy(1/(ms))","BulkND_yz(1/(ms))","BulkND_zx(1/(ms))","BulkND_zy(1/(ms))","BulkND_zz(1/(ms))","BulkV_x(m/s)","BulkV_y(m/s)","BulkV_z(m/s)","SSTVelocity(m/s)","SSTRedTow(m2)","SSTRedAtt(m2)","MeanE(eV)","EleTemp(eV)","IonCoeff(m3/s)","AttCoeff(m3/s)","MomTransfFreq(1/s)","EnergyRelFreq(1/s)","RedDiffE_eedf(eV/(ms))","RedMobE_eedf(eV/(msV))","RedDiff_eedf(1/(ms))", "RedMob_DC_eedf(1/(msV))","CharacEnergy_eedf(eV)", "trialCollFreq(1/s)"};
 				std::string swarmHeader = varCond;
 				for (auto var: swarmVars){
 					swarmHeader += var + std::string(24-var.size(), ' ');
@@ -511,16 +654,32 @@ public:
 			FILE* fileID5 = std::fopen(fileName5.c_str(), "a");
 
 			// check the type of variable condition
-			double conditionValue = workCond->reducedElecField;
+			double conditionValue;
+			if (variableCondition == "reducedElecField"){
+				conditionValue = workCond->reducedElecField;
+			}
+			else if (variableCondition == "reducedMagField"){
+				conditionValue = workCond->reducedMagField;
+			}
+			else if (variableCondition == "elecFieldAngle"){
+				conditionValue = workCond->elecFieldAngle;
+			}
+			else if (variableCondition == "excitationFrequency"){
+				conditionValue = workCond->excitationFrequency;
+			}
 
 			// append new line with swarm data
-			Eigen::ArrayXd fluxRedDiff = electronKinetics->averagedFluxDiffusionCoeffs*electronKinetics->totalGasDensity;
-			Eigen::ArrayXd bulkRedDiff = electronKinetics->averagedBulkDiffusionCoeffs*electronKinetics->totalGasDensity;
-		    std::fprintf(fileID1, "%-21.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e\n", conditionValue, 
-		    fluxRedDiff[0], fluxRedDiff[4], fluxRedDiff[8], electronKinetics->averagedFluxDriftVelocity[0], electronKinetics->averagedFluxDriftVelocity[1], electronKinetics->averagedFluxDriftVelocity[2] , 
-		    bulkRedDiff[0], bulkRedDiff[4], bulkRedDiff[8], electronKinetics->averagedBulkDriftVelocity[0], electronKinetics->averagedBulkDriftVelocity[1], electronKinetics->averagedBulkDriftVelocity[2],
-		    swarmParam["meanEnergy"], swarmParam["Te"], swarmParam["totalIonRateCoeff"], swarmParam["totalAttRateCoeff"], swarmParam["redDiffCoeffEnergy_eedf"], swarmParam["redMobCoeffEnergy_eedf"],
-		    swarmParam["redDiffCoeff_eedf"], swarmParam["redMobCoeff_DC_eedf"], swarmParam["characEnergy_eedf"]);				
+			Eigen::Matrix3d fluxRedDiff = electronKinetics->averagedFluxDiffusionCoeffs*electronKinetics->totalGasDensity;
+			Eigen::Matrix3d bulkRedDiff = electronKinetics->averagedBulkDiffusionCoeffs*electronKinetics->totalGasDensity;
+		    std::fprintf(fileID1, "%-21.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e %-23.14e \n", conditionValue, 
+		    fluxRedDiff(0,0), fluxRedDiff(0,1), fluxRedDiff(0,2), fluxRedDiff(1,0), fluxRedDiff(1,1), fluxRedDiff(1,2), fluxRedDiff(2,0), fluxRedDiff(2,1),fluxRedDiff(2,2), 
+			electronKinetics->averagedFluxDriftVelocity[0], electronKinetics->averagedFluxDriftVelocity[1], electronKinetics->averagedFluxDriftVelocity[2] , 
+		    bulkRedDiff(0,0), bulkRedDiff(0,1), bulkRedDiff(0,2), bulkRedDiff(1,0), bulkRedDiff(1,1), bulkRedDiff(1,2), bulkRedDiff(2,0), bulkRedDiff(2,1),bulkRedDiff(2,2),  
+			electronKinetics->averagedBulkDriftVelocity[0], electronKinetics->averagedBulkDriftVelocity[1], electronKinetics->averagedBulkDriftVelocity[2],
+			swarmParam["effSSTAverageVelocity"], swarmParam["effSSTRedTownsendCoeff"], swarmParam["effSSTRedAttCoeff"],
+		    swarmParam["meanEnergy"], swarmParam["Te"], swarmParam["totalIonRateCoeff"], swarmParam["totalAttRateCoeff"],
+			swarmParam["momTransfFreq"], swarmParam["energyRelaxFreq"],
+		    swarmParam["redDiffCoeffEnergy_eedf"], swarmParam["redMobCoeffEnergy_eedf"], swarmParam["redDiffCoeff_eedf"], swarmParam["redMobCoeff_DC_eedf"], swarmParam["characEnergy_eedf"], electronKinetics->trialCollisionFrequency);				
 
 		    // append new line with power data
 		    std::fprintf(fileID2, "%-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %-21.14e %19.14e%%\n", conditionValue, 
@@ -549,6 +708,8 @@ public:
 			Eigen::ArrayXd eedf = electronKinetics->eedf;
 			Eigen::ArrayXd cell = electronKinetics->energyGrid->cell;
 			int nCells = cell.size();
+			std::fprintf(fileID4, "%-20.14e ", conditionValue);
+			std::fprintf(fileID5, "%-20.14e ", conditionValue);
 			for (int i = 0; i < nCells; ++i){
 				std::fprintf(fileID4, "%-20.14e ", eedf[i]);
 				std::fprintf(fileID5, "%-20.14e ", cell[i]);	
@@ -567,57 +728,98 @@ public:
 
 
 	void saveMCTemporalInfo(Eigen::ArrayXd &samplingTimes, Eigen::ArrayXd &meanEnergies, Eigen::ArrayXXd &meanPositions, Eigen::ArrayXXd &positionCovariances, Eigen::ArrayXXd &meanVelocities){
-		std::string fileName = folder + subFolder + "/MCTemporalInfo.txt";
+		std::string fileName;
+		if (eedfType == "boltzmannMC"){
+			fileName = folder + subFolder + "/MCTemporalInfo.txt";
+		}
 
 		// open file
 		FILE* fileID = std::fopen(fileName.c_str(), "w");
 
 		// write the time-dependent data in an auxiliary file
-		std::fprintf(fileID, "Time(s)              MeanEnergy(eV)      xPos(m)             yPos(m)             zPos(m)             xSqWidth(m2)        ySqWidth(m2)        zSqWidth(m2)        xVel(m/s)           yVel(m/s)           zVel(m/s)           \n");
+		std::vector<std::string> vars = {"Time(s)", "MeanEnergy(eV)", "xPos(m)", "yPos(m)", "zPos(m)", "xSqWidth(m2)", "ySqWidth(m2)", "zSqWidth(m2)", "xVel(m/s)", "yVel(m/s)", "zVel(m/s)"};
+		std::string header;
+		for (auto var: vars){
+			header += var + std::string(20-var.size(), ' ');
+		}		
+		std::fprintf(fileID, "%s\n", header.c_str());
 		int nSamplingPoints = electronKinetics->nSamplingPoints;
 		for (int i = 0; i < nSamplingPoints; ++i){
-			std::fprintf(fileID, "%#19.12e %#19.12e %#19.12e %#19.12e %#19.12e %#19.12e %#19.12e %#19.12e %#19.12e %#19.12e %#19.12e\n", samplingTimes[i], meanEnergies[i], meanPositions(i, 0), meanPositions(i, 1), meanPositions(i, 2), 
+			std::fprintf(fileID, "%-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e \n", samplingTimes[i], meanEnergies[i], meanPositions(i, 0), meanPositions(i, 1), meanPositions(i, 2), 
 				    positionCovariances(i,0), positionCovariances(i,4), positionCovariances(i,8), meanVelocities(i,0), meanVelocities(i,1), meanVelocities(i,2));
 		}
 		std::fclose(fileID);
 	}
 
-	void saveMCSimDetails(){
+	void saveMCTemporalInfoPeriodic(Eigen::ArrayXd &integrationPhases, Eigen::ArrayXd &meanEnergies_periodic, Eigen::ArrayXXd &fluxVelocities_periodic, Eigen::ArrayXXd &bulkVelocities_periodic, Eigen::ArrayXXd &fluxDiffusionCoeffs_periodic, Eigen::ArrayXXd &bulkDiffusionCoeffs_periodic){
 
-		// create file name
-		std::string fileName = folder + subFolder + "/MCSimDetails.txt";
+		double angularFrequency = electronKinetics->workCond->excitationFrequency*2.0*M_PI;
+		if (angularFrequency == 0){
+			return;
+		}
 
 		// open file
-		FILE* fileID = std::fopen(fileName.c_str(), "w");
+		FILE* fileID = std::fopen((folder + subFolder + "/MCTemporalInfo_periodic.txt").c_str(), "w");
 
-		// save information into the file
-		std::fprintf(fileID, "                          number of electrons: %e\n", electronKinetics->nElectrons);
-		std::fprintf(fileID, "                        final simulation time: %e s\n", electronKinetics->time);
-		std::fprintf(fileID, "                            steady-state time: %e s\n", electronKinetics->steadyStateTime);
-		std::fprintf(fileID, "                 number of integration points: %d\n\n", electronKinetics->nIntegrationPoints);
-		std::fprintf(fileID, "********************************** Collisions ************************************\n\n");
-		std::fprintf(fileID, "number of real collisions before steady-state: %e\n", (double)electronKinetics->collisionCounterAtSS);
-		std::fprintf(fileID, " number of real collisions after steady-state: %e\n", (double)electronKinetics->totalCollisionCounter-electronKinetics->collisionCounterAtSS);
-		std::fprintf(fileID, "----------------------------------------------------------------------------------\n");
-		std::fprintf(fileID, "              total number of real collisions: %e\n\n", (double)electronKinetics->totalCollisionCounter);
-		std::fprintf(fileID, "number of null collisions before steady-state: %e\n", (double)electronKinetics->nullCollisionCounterAtSS);
-		std::fprintf(fileID, " number of null collisions after steady-state: %e\n", (double)electronKinetics->nullCollisionCounter-electronKinetics->nullCollisionCounterAtSS);
-		std::fprintf(fileID, "----------------------------------------------------------------------------------\n");
-		std::fprintf(fileID, "              total number of null collisions: %e\n\n", (double)electronKinetics->nullCollisionCounter);
-		std::fprintf(fileID, "                  fraction of real collisions: %e%%\n", (double)electronKinetics->totalCollisionCounter/(electronKinetics->totalCollisionCounter+electronKinetics->nullCollisionCounter)*100.0);
-		std::fprintf(fileID, "                  fraction of null collisions: %e%%\n", (double)electronKinetics->nullCollisionCounter/(electronKinetics->totalCollisionCounter+electronKinetics->nullCollisionCounter)*100.0);
-		std::fprintf(fileID, "----------------------------------------------------------------------------------\n");
-		std::fprintf(fileID, "                                        total: %e%%\n\n", 100.0);
-		std::fprintf(fileID, "************************** Simulation relative errors ****************************\n\n");
-		std::fprintf(fileID, "                                  Mean energy: %.4e\n", electronKinetics->averagedMeanEnergyError/electronKinetics->averagedMeanEnergy);
-		Eigen::ArrayXd relError = electronKinetics->averagedFluxDriftVelocityError/Eigen::abs(electronKinetics->averagedFluxDriftVelocity);
-		std::fprintf(fileID, "                          Flux drift velocity: %.4e %.4e %.4e\n", relError[0], relError[1], relError[2]);
-		relError = electronKinetics->averagedFluxDiffusionCoeffsError/Eigen::abs(electronKinetics->averagedFluxDiffusionCoeffs);
-		std::fprintf(fileID, "                  Flux diffusion coefficients: %.4e %.4e %.4e\n", relError[0], relError[4], relError[8]);
-		std::fprintf(fileID, "                                Power balance: %.4e\n", electronKinetics->powerBalanceRelError);
-		std::fprintf(fileID, "**********************************************************************************\n\n");
-		std::fprintf(fileID, "                                 Elapsed time: %e s\n", electronKinetics->elapsedTime);
+		std::vector<std::string> vars = {"Phase(rad)", "Phase(s)","E/N(Td)", "MeanEnergy(eV)", "FluxV_x(m/s)","FluxV_y(m/s)","FluxV_z(m/s)","BulkV_x(m/s)", "BulkV_y(m/s)","BulkV_z(m/s)", "FluxND_xx(1/(ms))", "FluxND_xy(1/(ms))", "FluxND_xz(1/(ms))", "FluxND_yx(1/(ms))", "FluxND_yy(1/(ms))", "FluxND_yz(1/(ms))", "FluxND_zx(1/(ms))", "FluxND_zy(1/(ms))", "FluxND_zz(1/(ms))", "BulkND_xx(1/(ms))", "BulkND_xy(1/(ms))", "BulkND_xz(1/(ms))", "BulkND_yx(1/(ms))", "BulkND_yy(1/(ms))", "BulkND_yz(1/(ms))", "BulkND_zx(1/(ms))", "BulkND_zy(1/(ms))", "BulkND_zz(1/(ms))"};
+		std::string header = "";
+		for (auto var: vars){
+			header += var + std::string(20-var.size(), ' ');
+		}
+		std::fprintf(fileID, "%s\n", header.c_str());
+		double EN = electronKinetics->workCond->reducedElecField;
+		double N = electronKinetics->workCond->gasDensity;			
+		int nIntegrationPhases = integrationPhases.size();
+		for (int phaseIdx = 0; phaseIdx < nIntegrationPhases; ++phaseIdx){			
+			std::fprintf(fileID, "%-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e\n", 
+				integrationPhases[phaseIdx], integrationPhases[phaseIdx]/angularFrequency, std::sqrt(2)*EN*std::cos(integrationPhases[phaseIdx]), meanEnergies_periodic[phaseIdx], fluxVelocities_periodic(phaseIdx,0), fluxVelocities_periodic(phaseIdx,1), fluxVelocities_periodic(phaseIdx,2), bulkVelocities_periodic(phaseIdx,0), bulkVelocities_periodic(phaseIdx,1), bulkVelocities_periodic(phaseIdx,2),
+				N*fluxDiffusionCoeffs_periodic(phaseIdx,0), N*fluxDiffusionCoeffs_periodic(phaseIdx,1), N*fluxDiffusionCoeffs_periodic(phaseIdx,2), N*fluxDiffusionCoeffs_periodic(phaseIdx,3), N*fluxDiffusionCoeffs_periodic(phaseIdx,4), N*fluxDiffusionCoeffs_periodic(phaseIdx,5), N*fluxDiffusionCoeffs_periodic(phaseIdx,6), N*fluxDiffusionCoeffs_periodic(phaseIdx,7), N*fluxDiffusionCoeffs_periodic(phaseIdx,8), 
+				N*bulkDiffusionCoeffs_periodic(phaseIdx,0), N*bulkDiffusionCoeffs_periodic(phaseIdx,1), N*bulkDiffusionCoeffs_periodic(phaseIdx,2), N*bulkDiffusionCoeffs_periodic(phaseIdx,3), N*bulkDiffusionCoeffs_periodic(phaseIdx,4), N*bulkDiffusionCoeffs_periodic(phaseIdx,5), N*bulkDiffusionCoeffs_periodic(phaseIdx,6), N*bulkDiffusionCoeffs_periodic(phaseIdx,7), N*bulkDiffusionCoeffs_periodic(phaseIdx,8));
+		}
+
+		// close file
 		std::fclose(fileID);
+	}	
+
+	void saveMCSimDetails(){
+
+		if (eedfType == "boltzmannMC"){
+			// create file name
+			std::string fileName = folder + subFolder + "/MCSimDetails.txt";
+
+			// open file
+			FILE* fileID = std::fopen(fileName.c_str(), "w");
+
+			// save information into the file
+			std::fprintf(fileID, "                          number of electrons: %e\n", electronKinetics->nElectrons);
+			std::fprintf(fileID, "                      trialCollisionFrequency: %e s-1\n\n", electronKinetics->trialCollisionFrequency);
+			std::fprintf(fileID, "                        final simulation time: %e s\n", electronKinetics->time);
+			std::fprintf(fileID, "                            steady-state time: %e s\n", electronKinetics->steadyStateTime);
+			std::fprintf(fileID, "                 number of integration points: %d\n\n", electronKinetics->nIntegrationPoints);
+			std::fprintf(fileID, "********************************** Collisions ************************************\n\n");
+			std::fprintf(fileID, "number of real collisions before steady-state: %e\n", (double)electronKinetics->collisionCounterAtSS);
+			std::fprintf(fileID, " number of real collisions after steady-state: %e\n", (double)electronKinetics->totalCollisionCounter-electronKinetics->collisionCounterAtSS);
+			std::fprintf(fileID, "----------------------------------------------------------------------------------\n");
+			std::fprintf(fileID, "              total number of real collisions: %e\n\n", (double)electronKinetics->totalCollisionCounter);
+			std::fprintf(fileID, "number of null collisions before steady-state: %e\n", (double)electronKinetics->nullCollisionCounterAtSS);
+			std::fprintf(fileID, " number of null collisions after steady-state: %e\n", (double)electronKinetics->nullCollisionCounter-electronKinetics->nullCollisionCounterAtSS);
+			std::fprintf(fileID, "----------------------------------------------------------------------------------\n");
+			std::fprintf(fileID, "              total number of null collisions: %e\n\n", (double)electronKinetics->nullCollisionCounter);
+			std::fprintf(fileID, "                  fraction of real collisions: %e%%\n", (double)electronKinetics->totalCollisionCounter/(electronKinetics->totalCollisionCounter+electronKinetics->nullCollisionCounter)*100.0);
+			std::fprintf(fileID, "                  fraction of null collisions: %e%%\n", (double)electronKinetics->nullCollisionCounter/(electronKinetics->totalCollisionCounter+electronKinetics->nullCollisionCounter)*100.0);
+			std::fprintf(fileID, "----------------------------------------------------------------------------------\n");
+			std::fprintf(fileID, "                                        total: %e%%\n\n", 100.0);
+			std::fprintf(fileID, "************************** Simulation relative errors ****************************\n\n");
+			std::fprintf(fileID, "                                  Mean energy: %.4e\n", electronKinetics->averagedMeanEnergyError/electronKinetics->averagedMeanEnergy);
+			Eigen::ArrayXd relError = electronKinetics->averagedFluxDriftVelocityError/Eigen::abs(electronKinetics->averagedFluxDriftVelocity);
+			std::fprintf(fileID, "                          Flux drift velocity: %.4e %.4e %.4e\n", relError[0], relError[1], relError[2]);
+			Eigen::Matrix3d relErrorDiff = electronKinetics->averagedFluxDiffusionCoeffsError.array()/Eigen::abs(electronKinetics->averagedFluxDiffusionCoeffs.array());
+			std::fprintf(fileID, "                  Flux diffusion coefficients: %.4e %.4e %.4e\n", relErrorDiff(0,0), relErrorDiff(1,1), relErrorDiff(2,2));
+			std::fprintf(fileID, "                                Power balance: %.4e\n", electronKinetics->powerBalanceRelError);
+			std::fprintf(fileID, "**********************************************************************************\n\n");
+			std::fprintf(fileID, "                                 Elapsed time: %e s\n", electronKinetics->elapsedTime);
+			std::fclose(fileID);
+		}
 	}
 };
 

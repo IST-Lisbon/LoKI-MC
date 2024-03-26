@@ -7,7 +7,7 @@
 #include "LoKI-MC/Headers/EedfState.h"
 #include "LoKI-MC/Headers/EedfGas.h"
 #include "LoKI-MC/Headers/Parse.h"
-#include "LoKI-MC/Headers/PrescribedEedf.h"
+#include "LoKI-MC/Headers/GeneralDefinitions.h"
 #include "External/eigen-3.4.0/Eigen/Dense"
 #include <iostream>
 #include <cstdio>
@@ -24,31 +24,25 @@
 #include <fstream>
 #include <ctime>
 
-#define bold "\e[1m"
-#define nonBold "\e[0m"
-#define blue "\033[0;34m"
-#define resetColor "\033[0m"
-
-// definition of the process types
-const int conservativeType = 0;
-const int ionizationType = 1;
-const int attachmentType = 2;
-
 // the constructor is written in the '.h' file to avoid compilation problems related with the templates
 
 void BoltzmannMC::allocateEvaluateVariablesFirstTime(){
 	// 'allocateEvaluateVariablesFirstTime' evaluate and allocate variables when the constructor is called
 
-	// evaluate nProcesses
+	// evaluate nProcesses and nGases
 	nProcesses = 0;
+	nGases = 0;
 	for (auto& gas: gasArray){
-		for (auto& collision: gas->collisionArray){
-			if (collision->type == "Effective"){ // avoid effective collisions
-				continue;
-			}
-			++nProcesses;
-			if (collision->isReverse){
+		if (!gas->collisionArray.empty()){
+			++nGases;
+			for (auto& collision: gas->collisionArray){
+				if (collision->type == "Effective"){ // avoid effective collisions
+					continue;
+				}
 				++nProcesses;
+				if (collision->isReverse){
+					++nProcesses;
+				}
 			}
 		}
 	}
@@ -66,11 +60,11 @@ void BoltzmannMC::allocateEvaluateVariablesFirstTime(){
 	crossSectionInterpolations.resize(nProcesses, NULL); crossSectionInterpAccelerators.resize(nProcesses, NULL);
 	relDensities = new double[nProcesses]; targetMasses = new double[nProcesses]; reducedMasses = new double[nProcesses]; energyLosses = new double[nProcesses]; thermalStdDeviations = new double[nProcesses];
 	crossSectionEnergyGrid = new double[interpolCrossSectionSize];
-	interpolCrossSectionsXrelDens = new double*[nProcesses];
-	cumulSumInterpolCrossSectionsXrelDens = new double*[nProcesses];
-	for (int i = 0; i < nProcesses; ++i){
-		interpolCrossSectionsXrelDens[i] = new double[interpolCrossSectionSize];
-		cumulSumInterpolCrossSectionsXrelDens[i] = new double[interpolCrossSectionSize];
+	interpolCrossSectionsXrelDens = new double*[interpolCrossSectionSize];
+	cumulSumInterpolCrossSectionsXrelDens = new double*[interpolCrossSectionSize];
+	for (int i = 0; i < interpolCrossSectionSize; ++i){
+		interpolCrossSectionsXrelDens[i] = new double[nProcesses];
+		cumulSumInterpolCrossSectionsXrelDens[i] = new double[nProcesses];
 	}
 	totalCollisionFrequencies = new double[interpolCrossSectionSize];
 	maxCollisionFrequencies = new double[interpolCrossSectionSize];
@@ -80,30 +74,46 @@ void BoltzmannMC::allocateEvaluateVariablesFirstTime(){
 	averagedPowerGainProcesses = new double[nProcesses]; averagedPowerLossProcesses = new double[nProcesses];
 	wParameters = new double[nProcesses];
 	targetGasIDs = new int[nProcesses];
+	isMomentumConservationIonizationScattering = new bool[nProcesses];	
+	angularScatteringFunctions.resize(nProcesses, NULL);
+	firstProcessIndexPerGas = new double [nGases];
+	lastProcessIndexPerGas = new double [nGases];
+	gasFractions = new double [nGases];	
 	chosenProcessIDs = new int[(int)nElectrons];
-	ejectedElectronPositions.resize(nElectrons,3); ejectedElectronVelocities.resize(nElectrons,3);
-	electronEnergyChanges = new double [(int)nElectrons];
+	ejectedElectronPositions.resize(nElectrons,3); ejectedElectronVelocities.resize(nElectrons,3); 
+	ejectedElectronEnergies.resize(nElectrons);
+	electronEnergyChanges.resize(nElectrons);
+	electronEnergyChangesOverIncidEnergies.resize(nElectrons);
+	energyGainsField.resize(nElectrons);
 
 	// assign the data for each MC process (remember that here we separate inelastics from superelastics)
 	int iterProcess = 0;
+	int iterGas = 0;
 
 	for (auto& gas: gasArray){
+
+		if (gas->collisionArray.empty()){
+			continue;
+		}	
+		firstProcessIndexPerGas[iterGas] = iterProcess;
+		gasFractions[iterGas] = gas->fraction; 
+
 		for (auto& collision: gas->collisionArray){
 
-			// assign process type
+			// assign process type 
 			if (collision->type == "Effective"){ // avoid effective collisions
 				continue;
 			}
 			else if (collision->type == "Ionization"){
-				processTypes[iterProcess] = ionizationType;
+				processTypes[iterProcess] = GeneralDefinitions::ionizationType;
 				isIonization[iterProcess] = true;
 			}
 			else if (collision->type == "Attachment"){
-				processTypes[iterProcess] = attachmentType;
+				processTypes[iterProcess] = GeneralDefinitions::attachmentType;
 				isIonization[iterProcess] = false;
 			}
 			else{
-				processTypes[iterProcess] = conservativeType;
+				processTypes[iterProcess] = GeneralDefinitions::conservativeType;
 				isIonization[iterProcess] = false;
 				if (collision->type == "Elastic"){
 					isElastic[iterProcess] = true;
@@ -122,8 +132,8 @@ void BoltzmannMC::allocateEvaluateVariablesFirstTime(){
 			superElasticStatWeightFactors[iterProcess] = 0;
 
 			// Assign the cross section data
-			std::vector<double> tempEnergyVector = collision->rawCrossSection[0];
-			std::vector<double> tempValueVector = collision->rawCrossSection[1];
+			std::vector<double> tempEnergyVector = collision->rawIntegralCrossSection[0];
+			std::vector<double> tempValueVector = collision->rawIntegralCrossSection[1];
 			double tempThreshold = collision->threshold;
 			// eliminate the points with energy smaller than the threshold
 			while (tempEnergyVector[0] < tempThreshold){
@@ -145,7 +155,7 @@ void BoltzmannMC::allocateEvaluateVariablesFirstTime(){
 			energyMaxLimits[iterProcess] = tempEnergyVector.back();
 			// compare with energyMaxElastic
 			if (collision->type == "Elastic"){
-				energyMaxElastic = fmin(energyMaxElastic, energyMaxLimits[iterProcess]);
+				energyMaxElastic = std::fmin(energyMaxElastic, energyMaxLimits[iterProcess]);
 			}
 
 			// initialize the interpolation objects
@@ -175,13 +185,30 @@ void BoltzmannMC::allocateEvaluateVariablesFirstTime(){
 			// assign the target gas ID
 			targetGasIDs[iterProcess] = collision->target->gas->ID;
 
+			// assign the angular scattering function
+			angularScatteringFunctions[iterProcess] = AngularScatteringFunctions::functionMap(collision->angularScatteringType, collision->angularScatteringParams, this);
+
+			// assign the angular scattering parameters
+			angularScatteringParams.push_back(collision->angularScatteringParams);
+
+			// check if the angular scattering function is 'momentumConservationIonization'
+			if (collision->angularScatteringType == "momentumConservationIonization"){
+				if (!isIonization[iterProcess]){
+					Message::error(std::string("Trying to assign the angularScatteringType 'momentumConservationIonization' to the process\n") + collision->description() + "\nwhich is not 'Ionization'");
+				}
+				isMomentumConservationIonizationScattering[iterProcess] = true;
+			}
+			else{
+				isMomentumConservationIonizationScattering[iterProcess] = false;
+			}
+
 			// increment the iterator
 			++iterProcess;
 
 			// enter here if there is a superelastic
 			if (collision->isReverse){
 				// assign process type
-				processTypes[iterProcess] = conservativeType;
+				processTypes[iterProcess] = GeneralDefinitions::conservativeType;
 
 				// assign 'Collision' pointer
 				realCollisionPointers[iterProcess] = collision;
@@ -226,9 +253,20 @@ void BoltzmannMC::allocateEvaluateVariablesFirstTime(){
 				// assign the target gas ID
 				targetGasIDs[iterProcess] = collision->productArray[0]->gas->ID;
 
+				// assign the angular scattering function
+				angularScatteringFunctions[iterProcess]	= angularScatteringFunctions[iterProcess-1];
+
+				// assign the angular scattering parameters
+				angularScatteringParams.push_back(angularScatteringParams[iterProcess-1]);				
+				
+				// not relevant in superelastics
+				isMomentumConservationIonizationScattering[iterProcess] = false;			
+
 				++iterProcess;
 			}
 		}
+		lastProcessIndexPerGas[iterGas] = iterProcess-1;
+		++iterGas;
 	}
 }
 
@@ -253,7 +291,7 @@ void BoltzmannMC::solve(){
 	const auto end = std::chrono::high_resolution_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 	elapsedTime = (elapsed.count())*1E-3;
-	
+
 	// broadcast obtention of a solution for the EEDF
 	obtainedNewEedfSignal();
 }
@@ -266,6 +304,7 @@ void BoltzmannMC::evaluateEEDF(){
 
 	// calculate the mean data for the initial time
 	nSamplingPoints = 1;
+	nSynchronizationPoints = 1;
 	currentSamplingIndex = 0;
 	samplingTimes[currentSamplingIndex] = 0;
 	calculateMeanDataForSwarmParams();
@@ -275,57 +314,73 @@ void BoltzmannMC::evaluateEEDF(){
 		dispInfo();
 	}
 
-
 	// ----- perform the Monte Carlo algorithm ----- //
 
 	// the MC calculations are performed until one of these criteria is fulfilled: max collisions reached, required statistical errors, required integration points, required integrated steaty-state times
-	while ((collisionCounterAfterSS < maxCollisionsAfterSteadyState && (!goodStatisticalErrors || !errorsToBeChecked) 
-		   && nIntegrationPoints < requiredIntegrationPoints && totalIntegratedTime/steadyStateTime < requiredIntegratedSSTimes) || nIntegrationPoints < 500){
+	while ((!goodStatisticalErrors && errorsToBeChecked) || nIntegrationPoints < requiredIntegrationPoints ||
+		totalIntegratedTime/steadyStateTime < requiredIntegratedSSTimes  || totalIntegratedTime < requiredIntegratedAbsoluteTime){
 
-		// calculate the time step and perform the accelerated motion of the electrons
-		freeFlight();
- 						
- 		// update the number of sampling points
-		++nSamplingPoints;
-		currentSamplingIndex = nSamplingPoints-1;
-
-		// update the sampling times
-		samplingTimes[currentSamplingIndex] = time;
-
-		// calculate average data for swarm parameters
-		calculateMeanDataForSwarmParams();
-
-		// calculate the swarm parameters if the steady-state was already achieved
-		if (steadyStateTime != Constant::NON_DEF){
-
-			// update the number of points used for integration of the swarm parameters
-			++nIntegrationPoints;
-			collisionCounterAfterSS = totalCollisionCounter - collisionCounterAtSS;
-
-			// update the integration times
-			timeIntervalInteg = time - totalIntegratedTime;
-			totalIntegratedTime = time - steadyStateTime;
-
-			// get the time-dependent distribution functions
-			getTimeDependDistributions();
+		if (collisionCounterAfterSS >= maxCollisionsAfterSteadyState && nIntegrationPoints > 100){
+			break;
 		}
-		// check if the system has reached the steady state, taking into account the temporal evolution of the mean kinetic energy
-		else{
-			if (nSamplingPoints >= 100 && nSamplingPoints % nPointsBetweenSteadyStateCheck == 0 && totalCollisionCounter > minCollisionsBeforeSteadyState){
-				checkSteadyState();
+
+		// perform electron dynamics (accellerations and collisions) until synchronization time
+		electronDynamicsUntilSynchronization();
+
+		// perform sampling at the synchronization instant
+		if (nSynchronizationPoints % synchronizationOverSampling == 0){
+	 						
+	 		// update the number of sampling points
+			++nSamplingPoints;
+			currentSamplingIndex = nSamplingPoints-1;
+
+			// update the sampling times
+			samplingTimes[currentSamplingIndex] = time;
+
+			// calculate average data for swarm parameters
+			calculateMeanDataForSwarmParams();
+
+			// define the number of points between steady-state checks. It increases for larger number of sampling points, to avoid unnecessary checks
+			int deucades = std::fmax(std::log(nSamplingPoints)/std::log(2.0)-11, 6);
+			nPointsBetweenSteadyStateCheck = std::pow(2,deucades);
+
+			// calculate the swarm parameters if the steady-state was already achieved
+			if (steadyStateTime != Constant::NON_DEF){
+
+				// update the number of points used for integration of the swarm parameters
+				++nIntegrationPoints;
+				collisionCounterAfterSS = totalCollisionCounter - collisionCounterAtSS;
+
+				// update the integration times
+				timeIntervalInteg = time - totalIntegratedTime;
+				totalIntegratedTime = time - steadyStateTime;
+
+				// get the time-dependent distribution functions
+				getTimeDependDistributions();
+			}
+			// check if the system has reached the steady state, taking into account the temporal evolution of the mean kinetic energy
+			else{
+				if (nSamplingPoints >= 100 && nSamplingPoints % nPointsBetweenSteadyStateCheck == 0 && totalCollisionCounter > minCollisionsBeforeSteadyState){
+					checkSteadyState();
+				}
+			}		
+
+			// define the number of points between stat-error checks. It increases for larger number of integration points, to avoid unnecessary checks
+			deucades = std::fmax(std::log(nIntegrationPoints)/std::log(2.0)-9, 7);
+			nPointsBetweenStatErrorsCheck = std::pow(2,deucades);
+
+			// check statistical errors
+			if (steadyStateTime != Constant::NON_DEF && nIntegrationPoints > 200 && nIntegrationPoints % nPointsBetweenStatErrorsCheck == 0){
+				checkStatisticalErrors();
+			}
+
+			nPointsBetweenDispInfo = nPointsBetweenSteadyStateCheck;
+			// display info
+			if (dispMCStatus && nSamplingPoints % nPointsBetweenDispInfo == 0){
+				dispInfo();
 			}
 		}
 
-		// select and perform collisions for each electron in the ensemble
-		performCollisions();
-
-		if (steadyStateTime != Constant::NON_DEF && nIntegrationPoints > 200 && nIntegrationPoints % nPointsBetweenStatErrorsCheck == 0){
-			checkStatisticalErrors();
-		}
-
-		if (dispMCStatus && nSamplingPoints % nPointsBetweenDispInfo == 0){
-			dispInfo();
-		}		
 	}
 
 	// calculate the time-averaged swarm parameters when the simulation has finished
@@ -336,23 +391,26 @@ void BoltzmannMC::evaluateEEDF(){
 	getTimeAverageBulkParams();
 	getTimeAverageRateCoeffs();
 	getTimeAveragePowerBalance();
+	if (excitationFrequencyRadians != 0){
+		getAveragedPeriodicParams();
+	}
 
 	if (collisionCounterAfterSS > maxCollisionsAfterSteadyState){
 		if (dispMCStatus){
 			std::cout<<" "<<std::endl;
-			for (int i = 0; i < 21; ++i){
+			for (int i = 0; i < 30; ++i){
 				// move up in the terminal
 				std::printf("%c[1A", 0x1B);
 				// clear terminal line
 				std::printf("%c[2K", 0x1B);
 			}
-			Message::warning("Monte Carlo simulation ended after reaching ''maxCollisionsAfterSteadyState'' indicated in the setup file. [E/N = " + std::to_string(reducedElecField) + " Td\n");
-			for (int i = 0; i < 20; ++i){
+			Message::warning("Monte Carlo simulation ended after reaching ''maxCollisionsAfterSteadyState'' indicated in the setup file. [E/N = " + std::to_string(reducedElecField) + " Td, excitFreq = " + std::to_string(excitationFrequency) + " Hz, E-angle = " + std::to_string(elecFieldAngle) + " deg, B/N = " + std::to_string(reducedMagField) + " Hx]\n");
+			for (int i = 0; i < 29; ++i){
 				std::printf("\n");
 			}
 		}
 		else{
-			Message::warning("Monte Carlo simulation ended after reaching ''maxCollisionsAfterSteadyState'' indicated in the setup file. [E/N = " + std::to_string(reducedElecField) + " Td\n");
+			Message::warning("Monte Carlo simulation ended after reaching ''maxCollisionsAfterSteadyState'' indicated in the setup file. [E/N = " + std::to_string(reducedElecField) + " Td, excitFreq = " + std::to_string(excitationFrequency) + " Hz, E-angle = " + std::to_string(elecFieldAngle) + " deg, B/N = " + std::to_string(reducedMagField) + " Hx]\n");
 		}
 	}
 
@@ -400,11 +458,32 @@ void BoltzmannMC::evaluateNonConstantVariables(){
 	time = 0;
 	steadyStateTime = Constant::NON_DEF;
 
-	// update the electric field
+	// update the electric and magnetic fields
 	reducedElecField = workCond->reducedElecField;
-	electricField[0] = 0;
-	electricField[1] = 0;
-	electricField[2] = -workCond->reducedElecFieldSI*totalGasDensity;;
+	electricFieldValue = workCond->reducedElecFieldSI*totalGasDensity;
+	elecFieldAngle = workCond->elecFieldAngle;
+	if (elecFieldAngle == 180){
+		electricField[0] = 0;
+		electricField[1] = 0;
+		electricField[2] = -electricFieldValue;
+	}
+	else{
+		electricField[0] = electricFieldValue*std::sin(elecFieldAngle/180.0*M_PI);
+		electricField[1] = 0;
+		electricField[2] = electricFieldValue*std::cos(elecFieldAngle/180.0*M_PI);
+	}
+
+	excitationFrequency = workCond->excitationFrequency;
+	excitationFrequencyRadians = excitationFrequency*2.0*M_PI;
+
+	if (excitationFrequency != 0){
+		electricField *= std::sqrt(2);
+	}
+
+	reducedMagField = workCond->reducedMagField;
+	double magneticFieldValue = workCond->reducedMagFieldSI*totalGasDensity;
+	cyclotronFrequency = Constant::electronCharge*magneticFieldValue/Constant::electronMass;
+	isCylindricallySymmetric = workCond->isCylindricallySymmetric;
 
 	// calculate the electron acceleration, ONLY due to the electric field
 	accelerationElecField = -Constant::electronCharge/Constant::electronMass * electricField;
@@ -412,17 +491,21 @@ void BoltzmannMC::evaluateNonConstantVariables(){
 	// initialize to zero the position of the electrons
 	electronPositions = Eigen::ArrayXXd::Zero(nElectrons, 3);
 
-	// initialize the velocities, using a maxwell-boltzmann distribution at gas temperature
+	// initialize the velocities, using a maxwell-boltzmann distribution at initialElecTempOverGasTemp*gas temperature
 	electronVelocities.resize(nElectrons, 3);
-	double electronThermalDeviation = std::sqrt(Constant::boltzmann*gasTemperature/Constant::electronMass);
+	double electronThermalDeviation = std::sqrt(Constant::boltzmann*initialElecTempOverGasTemp*gasTemperature/Constant::electronMass);
 	for (int i = 0; i < nElectrons; ++i){
-		electronVelocities(i,0) = MathFunctions::unitNormalRand() * electronThermalDeviation; 
-		electronVelocities(i,1) = MathFunctions::unitNormalRand() * electronThermalDeviation;
-		electronVelocities(i,2) = MathFunctions::unitNormalRand() * electronThermalDeviation;
+		electronVelocities.row(i) = MathFunctions::unitNormalRand3() * electronThermalDeviation; 
 	}
 
 	// calculate the corresponding energies (in eV)
 	electronEnergies = 0.5*Constant::electronMass*electronVelocities.matrix().rowwise().squaredNorm() / Constant::electronCharge;
+
+	// initialize electron times
+	electronTimes = Eigen::ArrayXd::Zero(nElectrons);
+	
+	// initialize collision-free times
+	collisionFreeTimes = Eigen::ArrayXd::Constant(nElectrons, Constant::NON_DEF);
 
 	// interpolate the cross sections for the first time, until two times the maximum electron energy
 	// the maximum collision frequency for each energy point is also calculated
@@ -430,19 +513,32 @@ void BoltzmannMC::evaluateNonConstantVariables(){
 
 	// initialize the trial collision frequency
 	trialCollisionFrequency = maxCollisionFrequencies[interpolCrossSectionSize-1];
+	trialCollisionFrequenciesEachElectron = Eigen::ArrayXd::Constant(nElectrons, trialCollisionFrequency);
 
 	// initialize the matrices with the mean values along time (when the size surpasses '100', we will use 'conservativeResize')
 	samplingTimes = Eigen::ArrayXd::Zero(100);
-	meanEnergies = Eigen::ArrayXd::Zero(100); meanPositions = Eigen::ArrayXXd::Zero(100,3); meanVelocities = Eigen::ArrayXXd::Zero(100,3);
-	fluxDiffusionCoeffs = Eigen::ArrayXXd::Zero(100,9); positionCovariances = Eigen::ArrayXXd::Zero(100,9);
+	meanEnergies = Eigen::ArrayXd::Zero(100); meanPositions = Eigen::ArrayXXd::Zero(100,3); meanVelocities = Eigen::ArrayXXd::Zero(100,3); bulkVelocities = Eigen::ArrayXXd::Zero(100,3);
+	fluxDiffusionCoeffs = Eigen::ArrayXXd::Zero(100,9); positionCovariances = Eigen::ArrayXXd::Zero(100,9); bulkDiffusionCoeffs = Eigen::ArrayXXd::Zero(100,9);
+
+	// initialize the matrices with the mean values along the period (only when omega != 0)
+	if (excitationFrequencyRadians != 0){
+		integrationPhaseStep = 2.0*M_PI/nIntegrationPhases;
+		integrationPhases = Eigen::ArrayXd::LinSpaced(nIntegrationPhases, 0.5*integrationPhaseStep, 2.0*M_PI-0.5*integrationPhaseStep);
+		nIntegrationPointsPerPhase = Eigen::ArrayXd::Zero(nIntegrationPhases);
+		meanEnergies_periodic = Eigen::ArrayXd::Zero(nIntegrationPhases);
+		fluxVelocities_periodic = Eigen::ArrayXXd::Zero(nIntegrationPhases, 3);
+		bulkVelocities_periodic = Eigen::ArrayXXd::Zero(nIntegrationPhases, 3);
+		fluxDiffusionCoeffs_periodic = Eigen::ArrayXXd::Zero(nIntegrationPhases, 9);
+		bulkDiffusionCoeffs_periodic = Eigen::ArrayXXd::Zero(nIntegrationPhases, 9);
+	}
 
 	// initialize the averagedMeanEnergy to Constant::NON_DEF. Important for the 'dispInfo' function
 	averagedMeanEnergy = Constant::NON_DEF;
 	maxElecEnergy = electronEnergies.maxCoeff();
 
 	// initialize the time-averaged diffusion coeffs to Constant::NON_DEF
-	averagedFluxDiffusionCoeffs = Eigen::ArrayXd::Constant(9, Constant::NON_DEF); averagedFluxDiffusionCoeffsError = Eigen::ArrayXd::Constant(9, Constant::NON_DEF);
-	averagedBulkDiffusionCoeffs = Eigen::ArrayXd::Constant(9, Constant::NON_DEF); averagedBulkDiffusionCoeffsError = Eigen::ArrayXd::Constant(9, Constant::NON_DEF);
+	averagedFluxDiffusionCoeffs = Eigen::Matrix3d::Constant(Constant::NON_DEF); averagedFluxDiffusionCoeffsError = Eigen::Matrix3d::Constant(Constant::NON_DEF);
+	averagedBulkDiffusionCoeffs = Eigen::Matrix3d::Constant(Constant::NON_DEF); averagedBulkDiffusionCoeffsError = Eigen::Matrix3d::Constant(Constant::NON_DEF);
 
 	// initialize to zero the data to calculate the power balance
 	// initialize to zero the collision counters
@@ -458,6 +554,8 @@ void BoltzmannMC::evaluateNonConstantVariables(){
 
 	// initialize the boolean regarding the statistical errors
 	goodStatisticalErrors = false;
+
+	failedCollisionDueToGrid = 0;
 }
 
 void BoltzmannMC::interpolateCrossSections(double maxEnergy){
@@ -504,9 +602,9 @@ void BoltzmannMC::interpolateCrossSections(double maxEnergy){
 					value = 0;
 				}				
 			}
-			interpolCrossSectionsXrelDens[iterProcess][i] = value;
+			interpolCrossSectionsXrelDens[i][iterProcess] = value;
 			currentFrequency += value;
-			cumulSumInterpolCrossSectionsXrelDens[iterProcess][i] = currentFrequency;
+			cumulSumInterpolCrossSectionsXrelDens[i][iterProcess] = currentFrequency;
 		}
 
 		currentFrequency *= totalGasDensity*std::sqrt(energy*2.0*Constant::electronCharge/Constant::electronMass);
@@ -516,58 +614,127 @@ void BoltzmannMC::interpolateCrossSections(double maxEnergy){
 	}
 }
 
-void BoltzmannMC::freeFlight(){
-	// 'freeFlight' calculates the random time step and performs the accelerated motion of the electrons
+void BoltzmannMC::electronDynamicsUntilSynchronization(){
 
-	// ----- save the previous energies (in eV) ----- //
-	Eigen::ArrayXd previousEnergies = 0.5*Constant::electronMass*electronVelocities.matrix().rowwise().squaredNorm() / Constant::electronCharge;
+	// check if the trial collision frequency used in the null-collision method is appropriate
+	checkMaxCollisionFrequency();
 
-	
-	// ----- calculate the first time-step ----- //
-	// random = 0 or 1 are removed to avoid infinite or null time-steps
-	deltaT = -std::log(MathFunctions::unitUniformRand(false,false)) / trialCollisionFrequency;
+	deltaTSynchroniz = synchronizationTimeXMaxCollisionFrequency/trialCollisionFrequency;
+	nextSynchronizTime = time + deltaTSynchroniz;
+	++nSynchronizationPoints;
 
-	// ----- assure that the trial collision frequency is higher than the maximum collision frequency possible -----//
+	// initialize the array of booleans indicating if the electrons need to be advanced
+	Eigen::ArrayXb electronsToBeAdvanced = Eigen::ArrayXb::Ones(nElectrons);
 
-	// get the maximum speed before acceleration 
-	double maxSpeedBeforeAccel = electronVelocities.matrix().rowwise().norm().maxCoeff();
-	double accelerationNorm = accelerationElecField.matrix().norm();
+	// perform this cycle until all electrons are advanced to the synchronization time
+	while ((electronsToBeAdvanced != false).any()){
 
-	// worst-case scenario: the electron with maximum speed has a velocity alligned with the acceleration
-	double maxSpeed = maxSpeedBeforeAccel + accelerationNorm*deltaT;
-	// convert the maximum speed possible (after acceleration) to energy in eV
-	// avoid very small energies which would lead to instabilities in the code
-	double maxEnergy = std::fmax(0.5*Constant::electronMass*maxSpeed*maxSpeed/Constant::electronCharge, 0.01);
+		electronsToBeAdvanced.fill(false);
 
-	// update the interpolated cross sections, if the maximum interpolated energy is not high enough or if it is too high, 
-	// where the last case would cause physical imprecisions due to poor energy discretization
-	if (maxEnergy > maxInterpolatedEnergy || 2.5*maxEnergy < maxInterpolatedEnergy){
-		// this condition needs to be here, since in the first iterations the trial collision frequency is very low, 
-		// leading to very high energies, even higher than the maximum energy defined in the cross sections
-		if (2.0*maxEnergy < energyMaxElastic){
-			interpolateCrossSections(2.0*maxEnergy);
+		checkMaxCollisionFrequency();
+
+		#pragma omp parallel for
+		for (int elecID = 0; elecID < (int)nElectrons; ++elecID){
+			// check if the current electron has reached the synchronization time
+			double electronTime = electronTimes[elecID];
+			if (electronTime == nextSynchronizTime){
+				chosenProcessIDs[elecID] = Constant::NON_DEF;
+				continue;
+			}
+			// if not, advance it by performing an acceleration + collision
+			Eigen::Array3d electronPosition = electronPositions.row(elecID);
+			Eigen::Array3d electronVelocity = electronVelocities.row(elecID);
+			double electronEnergy = electronEnergies[elecID];
+			double collisionFreeTime = collisionFreeTimes[elecID];
+			// if not defined, calculate a collision-free time
+			if (collisionFreeTime == Constant::NON_DEF){
+				// random = 0 or 1 are removed to avoid infinite or null time-steps
+				collisionFreeTime = -std::log(MathFunctions::unitUniformRand(false,false)) / trialCollisionFrequency;
+				// save the trial collision frequency that has been used to calculate the time. Then, this frequency will be used in the collision choice
+				trialCollisionFrequenciesEachElectron[elecID] = trialCollisionFrequency;
+			}
+			// if the collision-free time is enough to surpass the synchronization time, do not perform a collision and advance only until the synch time
+			if (electronTime + collisionFreeTime > nextSynchronizTime){
+				double deltaTAccell = nextSynchronizTime-electronTime;
+				accelerateElectron(elecID, electronTime, deltaTAccell, electronPosition, electronVelocity, electronEnergy);
+				electronTime = nextSynchronizTime;
+				collisionFreeTime -= deltaTAccell;
+				chosenProcessIDs[elecID] = GeneralDefinitions::partialFreeFlightID;
+			}
+			// accelerate, perform collision and calculate next collision-free time
+			else{
+				accelerateElectron(elecID, electronTime, collisionFreeTime, electronPosition, electronVelocity, electronEnergy);
+				electronTime += collisionFreeTime;
+				performCollision(elecID, electronPosition, electronVelocity, electronEnergy);
+				// random = 0 or 1 are removed to avoid infinite or null time-steps
+				collisionFreeTime = -std::log(MathFunctions::unitUniformRand(false,false)) / trialCollisionFrequency;
+				// save the trial collision frequency that has been used to calculate the time. Then, this frequency will be used in the collision choice
+				trialCollisionFrequenciesEachElectron[elecID] = trialCollisionFrequency;
+				// since the electron has not reached the synch time, activate boolean
+				electronsToBeAdvanced[elecID] = true;					
+			}
+			electronPositions.row(elecID) = electronPosition;
+			electronVelocities.row(elecID) = electronVelocity;
+			electronEnergies[elecID] = electronEnergy;
+			electronTimes[elecID] = electronTime;
+			collisionFreeTimes[elecID] = collisionFreeTime;
 		}
-		else{
-			interpolateCrossSections(energyMaxElastic);
-		}
+		// perform all operations that cannot be performed in parallel
+		nonParallelCollisionTasks();
 	}
 
-	// calculate the maximum collision frequency in the energy range [0, maxEnergy]
-	// fmin is used to prevent segmentation fault when maxEnergy = maxInterpolatedEnergy
-	int energyIndex = std::fmin(std::floor(maxEnergy/crossSectionEnergyStep), interpolCrossSectionSize-1);
-	double maxCollisionFrequency = maxCollisionFrequencies[energyIndex];
+	// update the general time
+	time = nextSynchronizTime;
+}
 
-	while (maxCollisionFrequency > trialCollisionFrequency){
+void BoltzmannMC::getMeanCollisionFrequency(){
+	// 'getMeanCollisionFrequency' calculates the mean collision frequency 
 
-		// increment the trial collision frequency and recalculate the time-step (random = 0 or 1 are removed to avoid infinite or null time-steps)
-		trialCollisionFrequency *= 1.1;
-		deltaT = -std::log(MathFunctions::unitUniformRand(false,false)) / trialCollisionFrequency;
+	meanCollisionFrequency = 0;
+	if (steadyStateTime == Constant::NON_DEF){
+		for (int elecID = 0; elecID < nElectrons; ++elecID){
+			int energyIndex = std::fmin(electronEnergies[elecID]/crossSectionEnergyStep, interpolCrossSectionSize-1);
+			meanCollisionFrequency += totalCollisionFrequencies[energyIndex];
+		}
+		meanCollisionFrequency /= nElectrons;
+	}
+	else{
+		double normalizer = eehSum.sum();
+		for (int i = 0; i < nEnergyCells; ++i){
+			int energyIndex = std::fmin(eedfEnergyCells[i]/crossSectionEnergyStep, interpolCrossSectionSize-1);
+			if (energyIndex != interpolCrossSectionSize-1){
+				meanCollisionFrequency += eehSum[i]*0.5*(totalCollisionFrequencies[energyIndex]+totalCollisionFrequencies[energyIndex+1]);
+			}
+			else{
+				meanCollisionFrequency += eehSum[i]*totalCollisionFrequencies[energyIndex];
+			}
+		}
+		meanCollisionFrequency /= normalizer;
+	}
+}
 
-		// worst-case scenario: the electron with maximum speed has a velocity alligned with the acceleration
-		maxSpeed = maxSpeedBeforeAccel + accelerationNorm*deltaT;
-		// convert the maximum speed possible (after acceleration) to energy in eV
-		// avoid very small energies which would lead to instabilities in the code
-		maxEnergy = std::fmax(0.5*Constant::electronMass*maxSpeed*maxSpeed/Constant::electronCharge, 0.01);
+void BoltzmannMC::checkMaxCollisionFrequency(){
+	// 'checkMaxCollisionFrequency' assures that the trial collision frequency is higher than the maximum collision frequency possible
+	// Additionally, it checks if the cross-section energy is appropriate for the current energy
+
+	// maximum energy before acceleration
+	double maxEnergyBeforeAccel = electronEnergies.maxCoeff();
+
+	// estimate a maximal contribution for the thermal energy of the molecules in case their motion is being considered
+	double thermalMolecContribution = 0;
+	if (gasTemperatureEffect == GeneralDefinitions::trueGasTempEffectID || gasTemperatureEffect == GeneralDefinitions::smartActivationGasTempEffectID){
+		// note: probability to find a molecule with energy higher than 10.0*1.5*k_B Tg is 1.4E-6
+		thermalMolecContribution = 10.0*gasEnergy;
+	}
+
+	bool updatedTrial = true;
+	while (updatedTrial){
+		updatedTrial = false;
+
+		// calculate the maximum energy possible after 10.0/trialCollisionFrequency
+		// note: probality of having a collision-free time higher than 10.0/trialCollisionFrequency is ~ 4.5E-5
+		// therefore, the time-interval used for the maximization is quite adequate
+		double maxEnergy = maximizationAccelerationEnergy(maxEnergyBeforeAccel, 10.0/trialCollisionFrequency) + thermalMolecContribution;
 
 		// update the interpolated cross sections, if the maximum interpolated energy is not high enough or if it is too high, 
 		// where the last case would cause physical imprecisions due to poor energy discretization
@@ -584,25 +751,660 @@ void BoltzmannMC::freeFlight(){
 
 		// calculate the maximum collision frequency in the energy range [0, maxEnergy]
 		// fmin is used to prevent segmentation fault when maxEnergy = maxInterpolatedEnergy
-		energyIndex = std::fmin(std::floor(maxEnergy/crossSectionEnergyStep), interpolCrossSectionSize-1);
-		maxCollisionFrequency = maxCollisionFrequencies[energyIndex];
+		int energyIndex = std::fmin(std::ceil(maxEnergy/crossSectionEnergyStep), interpolCrossSectionSize-1);
+		double maxCollisionFrequency = maxCollisionFrequencies[energyIndex];	
+
+		// if the trial collision frequency, used in the null-collision method, is smaller than the max coll freq, increase it
+		if (trialCollisionFrequency < maxCollisionFrequency){
+			updatedTrial = true;
+			trialCollisionFrequency *= 1.1;
+		}
+	}
+}
+
+double BoltzmannMC::maximizationAccelerationEnergy(double initialEnergy, double deltaT){
+	double e = Constant::electronCharge, me = Constant::electronMass, e_me = e/me;
+	double Ex0 = std::abs(electricField[0]), Ez0 = std::abs(electricField[2]);
+	double Ex02 = Ex0*Ex0, Ez02 = Ez0*Ez0, E02 = Ex02+Ez02, E0 = std::sqrt(E02);
+	double v0 = std::sqrt(initialEnergy*e*2.0/me);
+	double w = excitationFrequencyRadians, W = cyclotronFrequency;
+
+	// start by doing a maximization assuming a constant electric field and null mag field (w = W = 0)
+	// this maximization works for any configuration but it may overestimate a lot in cases with w != 0 and/or W != 0
+	double energyGain = (E0*v0 + 0.5*e_me*E02*deltaT) *deltaT;
+
+	// for other configurations, find the minimum between the previous maximization and a specific maximization
+
+	// null magnetic field
+	if (W == 0){
+		if (w != 0){
+			energyGain = std::fmin(energyGain, 2.0/w*(e_me*E02/w + v0*(Ex0+Ez0)) );
+		}
+	}
+	// non-null DC magnetic field
+	else{
+		if (w == 0){
+			energyGain = std::fmin(energyGain, 0.5*e_me*Ez02*deltaT*deltaT + (2.0*e_me*Ex02/W + 3.0*v0*Ex0)/W + v0*deltaT*Ez0 );
+		}
+		else if (std::abs(w-W)/w < 1E-6){
+			double W2 = W*W;
+			energyGain = std::fmin(energyGain, 2.0*e_me*Ez02/W2 + e_me*Ex02/(8.0*W2)*(4.0+W*deltaT*(2.0+W*deltaT)) + 
+									(v0*deltaT+v0/W)*Ex0 + 2.0*v0*Ez0/W);
+		}
+		else{
+			double w2 = w*w, W2 = W*W, w2mW2 = w2-W2;
+			energyGain = std::fmin(energyGain, 2.0*e_me*Ez02/w2 + 0.5*e_me*Ex02/(w2mW2*w2mW2)*(5.0*w2+8.0*w*W+5.0*W*W) + 
+									3.0*v0*Ex0/std::abs(w-W) + 2.0*v0*Ez0/w);
+		}
 	}
 
-	// ----- solve the accelerated motion of the electrons -----//
+	return initialEnergy + energyGain;
+}
 
-	// accelerate the electrons
-	electronPositions += electronVelocities*deltaT;
-	electronPositions.rowwise() += (accelerationElecField*0.5*deltaT*deltaT).transpose();
-	electronVelocities.rowwise() += (accelerationElecField*deltaT).transpose();
+void BoltzmannMC::accelerateElectron(int elecID, double electronTime, double deltaT, Eigen::Array3d &electronPosition, Eigen::Array3d &electronVelocity, double &electronEnergy){
+	
+	double previousEnergy = electronEnergy;
 
-	// save the new time
-	time += deltaT;
+	// accelerate the electron depending on the field configuration
+	double e = Constant::electronCharge, me = Constant::electronMass;
+
+	if (reducedMagField == 0){
+		if (excitationFrequency == 0){
+			electronPosition +=  electronVelocity*deltaT + (accelerationElecField*(0.5*deltaT*deltaT));
+			electronVelocity += (accelerationElecField*deltaT);
+		}
+		else{
+			double w = excitationFrequencyRadians;
+			double phi = w*electronTime;
+			double sinPhi = std::sin(phi), cosPhi = std::cos(phi);
+			double wDeltaT = w*deltaT;
+			double phase = wDeltaT + phi;
+			double sinPhase = std::sin(phase), cosPhase = std::cos(phase);
+			double e_me_w = e/(me*w);
+			double aux1 = e_me_w/w*(cosPhase+wDeltaT*sinPhi-cosPhi);
+			double aux2 = e_me_w*(sinPhi-sinPhase);
+			electronPosition[0] += electronVelocity[0]*deltaT + electricField[0]*aux1;
+			electronPosition[1] += electronVelocity[1]*deltaT;
+			electronPosition[2] += electronVelocity[2]*deltaT + electricField[2]*aux1;
+			electronVelocity[0] += electricField[0]*aux2;
+			electronVelocity[2] += electricField[2]*aux2;
+		}
+	}
+	else{
+		double vx0 = electronVelocity[0], vy0 = electronVelocity[1], vz0 = electronVelocity[2];
+		if (excitationFrequency == 0){
+			double W = cyclotronFrequency;
+			double WDeltaT = W*deltaT;
+			double sinWDeltaT = std::sin(WDeltaT), cosWDeltaT = std::cos(WDeltaT);
+			double sinWDeltaT_W = sinWDeltaT/W;
+			double aux2 = (cosWDeltaT-1.0)/W;
+			double vExCyc = e*electricField[0]/(me*W);
+			double az = e*electricField[2]/me;
+			electronPosition[0] += vx0*sinWDeltaT_W + (vy0+vExCyc)*aux2;
+			electronPosition[1] += -vx0*aux2 + vy0*sinWDeltaT_W + vExCyc*(sinWDeltaT_W-deltaT);
+			electronPosition[2] += vz0*deltaT - 0.5*az*deltaT*deltaT;
+			electronVelocity[0] = vx0*cosWDeltaT - vy0*sinWDeltaT - vExCyc*sinWDeltaT;
+			electronVelocity[1] = vx0*sinWDeltaT + vy0*cosWDeltaT + vExCyc*(cosWDeltaT-1.0);
+			electronVelocity[2] = vz0 - az*deltaT;
+		}
+		else if (std::abs(excitationFrequencyRadians-cyclotronFrequency)/excitationFrequencyRadians < 1E-6){
+			// electron cyclotron resonance
+			double W = cyclotronFrequency;
+			double phi = W*electronTime;
+			double sinPhi = std::sin(phi), cosPhi = std::cos(phi);
+			double WDeltaT = W*deltaT;
+			double sinWDeltaT = std::sin(WDeltaT), cosWDeltaT = std::cos(WDeltaT);
+			double phase = WDeltaT + phi;
+			double sinPhase = std::sin(phase), cosPhase = std::cos(phase);
+			double cosOppositePhase =  std::cos(phi - WDeltaT);
+			double e_me_W = e/(me*W);
+			double vExCyc = e_me_W*electricField[0];
+			double vEzAC = e_me_W*electricField[2];
+			double sinWDeltaT_W = sinWDeltaT/W;
+			double cosWDeltaTm1_W = (cosWDeltaT-1.0)/W;
+			double cosPhase_W = cosPhase/W;
+			electronPosition[0] += vx0*sinWDeltaT_W + vy0*cosWDeltaTm1_W - 0.25*vExCyc*(cosPhase_W-cosOppositePhase/W+2.0*deltaT*sinPhase);
+			electronPosition[1] += -vx0*cosWDeltaTm1_W + vy0*sinWDeltaT_W + 0.5*vExCyc*(deltaT*cosPhase_W-2.0*cosWDeltaTm1_W*sinPhi-cosPhi*sinWDeltaT_W);
+			electronPosition[2] += vz0*deltaT + vEzAC*(cosPhase_W-cosPhi/W+deltaT*sinPhi);
+			electronVelocity[0] = vx0*cosWDeltaT - vy0*sinWDeltaT - 0.5*vExCyc*(WDeltaT*cosPhase+cosPhi*sinWDeltaT);
+			electronVelocity[1] = vx0*sinWDeltaT + vy0*cosWDeltaT - 0.5*vExCyc*(WDeltaT*cosWDeltaT*sinPhi+(WDeltaT*cosPhi-sinPhi)*sinWDeltaT);
+			electronVelocity[2] = vz0 + vEzAC*(sinPhi-sinPhase);
+		}
+		else{
+			double w = excitationFrequencyRadians, W = cyclotronFrequency;
+			double phi = w*electronTime;
+			double sinPhi = std::sin(phi), cosPhi = std::cos(phi);
+			double wDeltaT = w*deltaT;
+			double sinwDeltaT = std::sin(wDeltaT), coswDeltaT = std::cos(wDeltaT);
+			double phase = wDeltaT + phi;
+			double sinPhase = std::sin(phase), cosPhase = std::cos(phase);
+			double WDeltaT = W*deltaT;
+			double sinWDeltaT = std::sin(WDeltaT), cosWDeltaT = std::cos(WDeltaT);
+			double w2 = w*w, W2 = W*W, w2mW2 = w2-W2;
+			double vExCyc = e/(me*W)*electricField[0];
+			double vEzAC = e/(me*w)*electricField[2];
+			double vExCyc_w2mW2 = vExCyc/w2mW2;
+			double WVExCyc_w2mW2 = W*vExCyc_w2mW2;
+			double sinWDeltaT_W = sinWDeltaT/W;
+			double cosWDeltaTm1_W = (cosWDeltaT-1.0)/W;
+			double wSinPhi = w*sinPhi;	
+			electronPosition[0] += vx0*sinWDeltaT_W + vy0*cosWDeltaTm1_W + WVExCyc_w2mW2*(cosPhi*(coswDeltaT-cosWDeltaT)+(wSinPhi*sinWDeltaT_W-sinPhi*sinwDeltaT));
+			electronPosition[1] += -vx0*cosWDeltaTm1_W + vy0*sinWDeltaT_W - vExCyc_w2mW2/w*((W2+w2*cosWDeltaT-w2)*sinPhi+W2*(w*cosPhi*sinWDeltaT_W-sinPhase));
+			electronPosition[2] += vz0*deltaT + vEzAC*((cosPhase-cosPhi)/w+deltaT*sinPhi);
+			electronVelocity[0] = vx0*cosWDeltaT - vy0*sinWDeltaT + WVExCyc_w2mW2*w*(cosWDeltaT*sinPhi-sinPhase+cosPhi/w*W*sinWDeltaT);
+			electronVelocity[1] = vx0*sinWDeltaT + vy0*cosWDeltaT + vExCyc_w2mW2*W2*(cosPhase-cosPhi*cosWDeltaT+wSinPhi*sinWDeltaT_W);
+			electronVelocity[2] = vz0 + vEzAC*(sinPhi-sinPhase);
+		}
+	}
 
 	// update the energy of the electrons (in eV)
-	electronEnergies = 0.5*Constant::electronMass*electronVelocities.matrix().rowwise().squaredNorm() / Constant::electronCharge;
+	electronEnergy = 0.5*Constant::electronMass*electronVelocity.matrix().squaredNorm() / Constant::electronCharge;
 	
 	// add the energy gain during the acceleration (in eV)
-	energyGainField += (electronEnergies - previousEnergies).sum();
+	energyGainsField[elecID] = (electronEnergy - previousEnergy);	
+}
+
+void BoltzmannMC::performCollision(int elecID, Eigen::Array3d &electronPosition, Eigen::Array3d &electronVelocity, double &electronEnergy){
+
+	Eigen::Array3d targetVelocity = Eigen::Array3d::Zero();
+
+	// ----- select the process ----- // 
+
+	int chosenProcessID = GeneralDefinitions::nullCollisionID;
+
+	// if the gas-temperature effect is to be considered
+	if (gasTemperatureEffect == GeneralDefinitions::trueGasTempEffectID || (gasTemperatureEffect == GeneralDefinitions::smartActivationGasTempEffectID && electronEnergy < 20.0*gasEnergy)){
+		// calculate the random versor of the target velocity
+		Eigen::Array3d targetVelocityVersor = MathFunctions::unitNormalRand3();		
+		double randCrossSectionFactor = trialCollisionFrequenciesEachElectron[elecID] * MathFunctions::unitUniformRand(false,true) / totalGasDensity;
+		// find the process using the bissection method gas by gas
+		double previousSumCrossSectionFactor = 0;
+
+		/*// collision choice for debugging
+		double sumCrossSectionFactor = 0;
+		int chosenProcessID_debug = GeneralDefinitions::nullCollisionID;
+		for (int iterProcess = 0; iterProcess < nProcesses; ++iterProcess){
+			// calculate the target velocity for the current gas
+			targetVelocity = targetVelocityVersor*thermalStdDeviations[iterProcess];
+			// calculate the relative speed and energy index
+			double relativeSpeed = (electronVelocity-targetVelocity).matrix().norm();
+			double relEnergyOverStep = 0.5*reducedMasses[iterProcess]*relativeSpeed*relativeSpeed/Constant::electronCharge/crossSectionEnergyStep;
+			int relEnergyIndex = std::fmin(relEnergyOverStep, interpolCrossSectionSize-1);
+			sumCrossSectionFactor += interpolCrossSectionsXrelDens[relEnergyIndex][iterProcess] * relativeSpeed;
+			// check if the cumulative factor surpassed the random factor, i.e., if this process is to be chosen
+			if (sumCrossSectionFactor >= randCrossSectionFactor){
+				chosenProcessID_debug = iterProcess;
+				break;
+			}			
+		}*/
+
+		// choose the collision type using a bissection method. However, it needs to be separated by gas, since each gas will have a different relative energy
+		for (int iGas = 0; iGas < nGases && chosenProcessID == GeneralDefinitions::nullCollisionID; ++iGas){
+			if (gasFractions[iGas] == 0){
+				continue;
+			}
+			// define the limits for the bissection search
+			int leftLimit = firstProcessIndexPerGas[iGas];
+			int rightLimit = lastProcessIndexPerGas[iGas];
+			// calculate the target velocity for the current gas
+			targetVelocity = targetVelocityVersor*thermalStdDeviations[leftLimit];
+			// calculate the relative speed and energy index
+			double relativeSpeed = (electronVelocity-targetVelocity).matrix().norm();
+			double relEnergyOverStep = 0.5*reducedMasses[leftLimit]*relativeSpeed*relativeSpeed/Constant::electronCharge/crossSectionEnergyStep;
+			// index of the first energy row
+			int relEnergyIndex1 = std::fmin(relEnergyOverStep, interpolCrossSectionSize-1); // conversion to int rounds the number downwards!
+			// index of the second energy row
+			int relEnergyIndex2 = std::fmin(relEnergyIndex1+1, interpolCrossSectionSize-1);
+			// assign weight fractions to each row, based on linear interpolation
+			double weight1 = (double)relEnergyIndex2 - relEnergyOverStep;
+			// in case both indexes correspond to the limit
+			if (weight1 < 0){
+				weight1 = 0.0;
+			}
+			else{
+				weight1 = 1.0;
+			}
+			double weight2 = 1.0-weight1;			
+			// save the pointers to the two energy rows
+			double* cumulSumInterpolCrossSectionsXrelDens_rowPtr1 = cumulSumInterpolCrossSectionsXrelDens[relEnergyIndex1];
+			double* cumulSumInterpolCrossSectionsXrelDens_rowPtr2 = cumulSumInterpolCrossSectionsXrelDens[relEnergyIndex2];
+			double* interpolCrossSectionsXrelDens_rowPtr1 = interpolCrossSectionsXrelDens[relEnergyIndex1];
+			double* interpolCrossSectionsXrelDens_rowPtr2 = interpolCrossSectionsXrelDens[relEnergyIndex2];
+			// consider as reference value the cumulative sum immediately before this gas
+			double referenceValue = 0;
+			if (leftLimit > 0){
+				referenceValue = weight1*cumulSumInterpolCrossSectionsXrelDens_rowPtr1[leftLimit-1]+weight2*cumulSumInterpolCrossSectionsXrelDens_rowPtr2[leftLimit-1];
+			}
+			// if the randCrossSectionFactor is higher than the sumed cross-section factor at the right limit, continue to the next gas
+			double limitCrossSectionFactor = previousSumCrossSectionFactor + (weight1*cumulSumInterpolCrossSectionsXrelDens_rowPtr1[rightLimit] +
+				weight2*cumulSumInterpolCrossSectionsXrelDens_rowPtr2[rightLimit] - referenceValue)*relativeSpeed;
+			if (randCrossSectionFactor > limitCrossSectionFactor){
+				// save the previousSumCrossSectionFactor, to be used in the next iteration
+				previousSumCrossSectionFactor = limitCrossSectionFactor;
+				continue;
+			}
+
+			// perform bissection method (taking into account what was already summed from the other gases)
+			while(leftLimit != rightLimit){
+
+				// get the tentative index. Note that in this operation, the result is rounded downwards (see arithmetic rules of integers in c++)
+				int tentativeIndex = (leftLimit + rightLimit)/2;
+				double tentativeValue = previousSumCrossSectionFactor + (weight1*cumulSumInterpolCrossSectionsXrelDens_rowPtr1[tentativeIndex] + 
+					weight2*cumulSumInterpolCrossSectionsXrelDens_rowPtr2[tentativeIndex]-referenceValue)*relativeSpeed;
+				// if the cumulative value of the tentative index is greater than the random value, the solution is in the left side
+				if (randCrossSectionFactor < tentativeValue){
+					rightLimit = tentativeIndex;
+				}
+				// if the cumulative value of the tentative index is smaller than the random value, the solution is in the right side
+				else if (randCrossSectionFactor > tentativeValue){
+					leftLimit = tentativeIndex + 1;
+				}
+				else{
+					chosenProcessID = tentativeIndex;
+					break;
+				}
+			}
+
+			if (leftLimit == rightLimit){
+				chosenProcessID = leftLimit;
+			}
+
+			// avoid collisions with null rates
+			while (weight1*interpolCrossSectionsXrelDens_rowPtr1[chosenProcessID] == 0 && weight2*interpolCrossSectionsXrelDens_rowPtr2[chosenProcessID] == 0){
+				--chosenProcessID;
+			}
+		}
+
+		// save the chosen process ID
+		chosenProcessIDs[elecID] = chosenProcessID;
+
+		/*if (chosenProcessID != chosenProcessID_debug){
+			std::cout<<"chosenProcessID_debug: "<<chosenProcessID_debug<<"\n"<<realCollisionPointers[chosenProcessID_debug]->description()<<"\n";
+			std::cout<<"chosenProcessID: "<<chosenProcessID<<"\n"<<realCollisionPointers[chosenProcessID]->description()<<"\n";
+
+		}*/						
+
+		// check if this is a null collision
+		if (chosenProcessID == GeneralDefinitions::nullCollisionID){
+			return;
+		}
+	}
+
+	// if the gas-temperature effect is to be neglected
+	else{
+		double randCollisionFrequency = trialCollisionFrequenciesEachElectron[elecID] * MathFunctions::unitUniformRand(false,true);
+		double energyOverStep = electronEnergy/crossSectionEnergyStep;
+		// index of the first energy row
+		int incEnergyIndex1 = std::fmin(energyOverStep, interpolCrossSectionSize-1); // conversion to int rounds the number downwards!
+		// index of the second energy row
+		int incEnergyIndex2 = std::fmin(incEnergyIndex1+1, interpolCrossSectionSize-1);
+		// assign weight fractions to each row, based on linear interpolation
+		double weight1 = (double)incEnergyIndex2 - energyOverStep;
+		// in case both indexes correspond to the limit
+		if (weight1 < 0){
+			weight1 = 0.0;
+		}				
+		double weight2 = 1.0-weight1;
+
+		// check if this is a null collision 
+		if (randCollisionFrequency > weight1*totalCollisionFrequencies[incEnergyIndex1]+weight2*totalCollisionFrequencies[incEnergyIndex2]){
+			chosenProcessIDs[elecID] = GeneralDefinitions::nullCollisionID;
+			return;				
+		}
+		// save the pointers to the two energy rows
+		double* cumulSumInterpolCrossSectionsXrelDens_rowPtr1 = cumulSumInterpolCrossSectionsXrelDens[incEnergyIndex1];
+		double* cumulSumInterpolCrossSectionsXrelDens_rowPtr2 = cumulSumInterpolCrossSectionsXrelDens[incEnergyIndex2];
+		double* interpolCrossSectionsXrelDens_rowPtr1 = interpolCrossSectionsXrelDens[incEnergyIndex1];
+		double* interpolCrossSectionsXrelDens_rowPtr2 = interpolCrossSectionsXrelDens[incEnergyIndex2];
+
+		// use a bissection method to find the process ID. Only possible when the gas-temperature effect is not considered
+		double randCrossSectionFactor = randCollisionFrequency / totalGasDensity / electronVelocity.matrix().norm();
+		int leftLimit = 0;
+		int rightLimit = nProcesses-1;
+
+		int iterations = 0;
+		while(leftLimit != rightLimit){
+
+			// get the tentative index. Note that in this operation, the result is rounded downwards (see arithmetic rules of integers in c++)
+			int tentativeIndex = (leftLimit + rightLimit)/2;
+
+			// if the cumulative value of the tentative index is greater than the random value, the solution is in the left side
+			double tentativeValue = weight1*cumulSumInterpolCrossSectionsXrelDens_rowPtr1[tentativeIndex]+weight2*cumulSumInterpolCrossSectionsXrelDens_rowPtr2[tentativeIndex];
+			if (randCrossSectionFactor < tentativeValue){
+				rightLimit = tentativeIndex;
+			}
+			// if the cumulative value of the tentative index is smaller than the random value, the solution is in the right side
+			else if (randCrossSectionFactor > tentativeValue){
+				leftLimit = tentativeIndex + 1;
+			}
+			else{
+				chosenProcessID = tentativeIndex;
+				break;
+			}
+		}
+
+		if (leftLimit == rightLimit){
+			chosenProcessID = leftLimit;
+		}	
+
+		// avoid collisions with null rates
+		while (weight1*interpolCrossSectionsXrelDens_rowPtr1[chosenProcessID] == 0 && weight2*interpolCrossSectionsXrelDens_rowPtr2[chosenProcessID] == 0){
+			--chosenProcessID;
+		}
+
+		// save the chosen process ID
+		chosenProcessIDs[elecID] = chosenProcessID;		
+	}
+
+	// ----- calculate the velocity after the collision ----- //
+
+	if (processTypes[chosenProcessID] == GeneralDefinitions::conservativeType){
+		conservativeCollision(elecID, electronPosition, electronVelocity, targetVelocity, electronEnergy, chosenProcessID);
+	}
+
+	else if (processTypes[chosenProcessID] == GeneralDefinitions::ionizationType){
+		ionizationCollision(elecID, electronPosition, electronVelocity, electronEnergy, chosenProcessID);
+	}
+
+	else if (processTypes[chosenProcessID] == GeneralDefinitions::attachmentType){
+		attachmentCollision(elecID, electronEnergy);
+	}
+
+}
+
+void BoltzmannMC::conservativeCollision(int elecID, Eigen::Array3d &electronPosition, Eigen::Array3d &electronVelocity, Eigen::Array3d &targetVelocity, double &electronEnergy, int chosenProcessID){
+	// 'convervativeCollision' solves the dynamics of a conservative collision, i.e., a collision without changes in the electron number
+	// Important note: for gasTemperatureEffect = trueGasTempEffectID, it was verified that the energy of the system [electron + target] is conserved!
+	// Performance can be improved by not calculating angles, but only sinAngle and cosAngle. This avoids multiple uses of sinus and cossinus
+
+	double targetMass = targetMasses[chosenProcessID];
+	double reducedMass = reducedMasses[chosenProcessID];
+	double energyLoss = energyLosses[chosenProcessID];
+	double incidentEnergy = electronEnergy;
+
+	if (gasTemperatureEffect == GeneralDefinitions::trueGasTempEffectID || (gasTemperatureEffect == GeneralDefinitions::smartActivationGasTempEffectID && incidentEnergy < 20.0*gasEnergy)){
+		// calculate the relative velocity before the collision and convert it to spherical coordinates
+		Eigen::Array3d relVelocityBefore = electronVelocity - targetVelocity;
+		double relSpeedBefore, sinThetaRelVel, cosThetaRelVel, sinPhiRelVel, cosPhiRelVel;
+		MathFunctions::cart2sph(relVelocityBefore, relSpeedBefore, sinThetaRelVel, cosThetaRelVel, sinPhiRelVel, cosPhiRelVel);
+		double relativeEnergy = 0.5*reducedMass*relSpeedBefore*relSpeedBefore/Constant::electronCharge;
+		double relEnergyAfter = relativeEnergy-energyLoss;
+
+		// this occurs very rarely (typically less than once per 1E9 [real + null] collisions)
+		// and is caused by the linear interpolation between two energy nodes made in the "performCollision"
+		// When the threshold of the collision is in-between the energy nodes, very very rarely an electron with relativeEnergy<energyLoss may be chosen
+		// This has ZERO influence in the results
+		if (relEnergyAfter <= 0){
+			chosenProcessIDs[elecID] = GeneralDefinitions::nullCollisionID;
+			return;			
+		}		
+
+		// generate the cos(scattering angle,) using the functions defined in 'AngularScatteringFunctions.h'
+		double cosChiScattered = angularScatteringFunctions[chosenProcessID](relativeEnergy, relEnergyAfter, chosenProcessID, this);
+		double sinChiScattered = std::sqrt(1.0-cosChiScattered*cosChiScattered);
+
+		// generate azimutal angle in ]0,2pi]
+		double etaScattered = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
+		double sinEtaScattered = std::sin(etaScattered), cosEtaScattered = std::cos(etaScattered);
+
+		// calculate the relative speed after the collision, using energy conservation (note that the energy must be converted from eV to SI)
+		// use Euler relations to calculate the relative velocity after the collision in the laboratory, knowing chi and eta in the CM frame
+		Eigen::Array3d relVelocityAfter = std::sqrt(relSpeedBefore*relSpeedBefore-2.0/reducedMass*energyLoss*Constant::electronCharge)* 
+								   MathFunctions::eulerTransformation(sinChiScattered, cosChiScattered, sinEtaScattered, cosEtaScattered, sinThetaRelVel, cosThetaRelVel, sinPhiRelVel, cosPhiRelVel);
+
+		// get the electron velocity after the collision using the conservation of momentum transfer
+		electronVelocity = targetMass/(Constant::electronMass+targetMass)*relVelocityAfter +
+						   (Constant::electronMass*electronVelocity + targetMass*targetVelocity)/(Constant::electronMass+targetMass);
+	}
+	else{
+		// convert the velocity of the incident electron to spherical coordinates
+		double electronSpeed, sinTheta, cosTheta, sinPhi, cosPhi;
+		MathFunctions::cart2sph(electronVelocity, electronSpeed, sinTheta, cosTheta, sinPhi, cosPhi);
+		double energyAfter = incidentEnergy-energyLoss;
+
+		// this occurs very rarely (typically less than once per 1E9 [real + null] collisions)
+		// and is caused by the linear interpolation between two energy nodes made in the "performCollision"
+		// When the threshold of the collision is in-between the energy nodes, very very rarely an electron with electronEnergy<energyLoss may be chosen
+		// This has ZERO influence in the results
+		if (energyAfter <= 0){
+			chosenProcessIDs[elecID] = GeneralDefinitions::nullCollisionID;		
+			return;			
+		}
+
+		// generate the scattering angle, using the functions defined in 'AngularScatteringFunctions.h'
+		double cosChiScattered = angularScatteringFunctions[chosenProcessID](incidentEnergy, energyAfter, chosenProcessID, this);
+		double sinChiScattered = std::sqrt(1.0-cosChiScattered*cosChiScattered);
+
+		// generate azimutal angle in ]0,2pi]
+		double etaScattered = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
+		double sinEtaScattered = std::sin(etaScattered), cosEtaScattered = std::cos(etaScattered);		
+
+		// calculate the electron speed after the collision, using energy conservation and assuming a target molecule at rest (due to the high mass) [Reid 1979]
+		// use Euler relations to determine the velocity after the collision
+		electronVelocity = std::sqrt((electronSpeed*electronSpeed-2.0/Constant::electronMass*energyLoss*Constant::electronCharge) * 
+							    (1.0-2.0*reducedMass/(Constant::electronMass+targetMass)*(1.0-cosChiScattered)))*
+						   MathFunctions::eulerTransformation(sinChiScattered, cosChiScattered, sinEtaScattered, cosEtaScattered, sinTheta, cosTheta, sinPhi, cosPhi);
+	}
+
+	// calculate the energy change (in eV) due to this collision
+	electronEnergy = 0.5*Constant::electronMass*electronVelocity.matrix().squaredNorm() / Constant::electronCharge;
+	electronEnergyChanges[elecID] = electronEnergy - incidentEnergy;
+	electronEnergyChangesOverIncidEnergies[elecID] = electronEnergyChanges[elecID]/incidentEnergy;
+}
+
+void BoltzmannMC::ionizationCollision(int elecID, Eigen::Array3d &electronPosition, Eigen::Array3d &electronVelocity, double &electronEnergy, int chosenProcessID){
+	// 'ionizationCollision' solves the dynamics of an ionization collision
+
+	double incidentEnergy = electronEnergy;
+	// check if the incident energy is smaller than the threshold. This happens only when the gas-temperature effect is considered
+	// This occurs much less than once per simulation and does not affect the results
+	double ionizationThreshold = energyLosses[chosenProcessID];
+	if (incidentEnergy < ionizationThreshold){
+		chosenProcessIDs[elecID] = GeneralDefinitions::nullCollisionID;
+		return;
+	}
+
+	// convert the velocity of the incident electron to spherical coordinates
+	double electronSpeed, sinTheta, cosTheta, sinPhi, cosPhi;
+	MathFunctions::cart2sph(electronVelocity, electronSpeed, sinTheta, cosTheta, sinPhi, cosPhi);
+
+	// calculate the speeds of the scattered and ejected electrons, assuming a background of molecules at rest
+	double netEnergy = incidentEnergy - ionizationThreshold;
+	double electronEnergyEjected;
+	if (energySharingIonizType == GeneralDefinitions::usingSDCSIonizType){
+		electronEnergyEjected = wParameters[chosenProcessID]*std::tan(MathFunctions::unitUniformRand(true,true) * std::atan(netEnergy/(2.0*wParameters[chosenProcessID])) );
+	}
+	else if (energySharingIonizType == GeneralDefinitions::randomUniformIonizType){
+		electronEnergyEjected = MathFunctions::unitUniformRand(true,true)*netEnergy;
+	}
+	else{
+		electronEnergyEjected = energySharingFactor*netEnergy;
+	}
+	electronEnergy = netEnergy - electronEnergyEjected;
+
+	// generate scattering angles depending on the model considered
+	double sinChiScattered, cosChiScattered, sinChiEjected, cosChiEjected, sinEtaScattered, cosEtaScattered, sinEtaEjected, cosEtaEjected;
+
+	if (isMomentumConservationIonizationScattering[chosenProcessID]){
+		// momentum-conservation scattering	
+		// generate the scattering angles, assuming that the incident, scattered and ejected electron velocities are coplanar
+		// and that the scattered and ejected electron velocities are perpendicular in the CM frame (according with Boeuf 1982)				
+		cosChiScattered = std::sqrt(electronEnergy/netEnergy);
+		sinChiScattered = std::sqrt(1.0-cosChiScattered*cosChiScattered);
+		double etaScattered = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
+		sinEtaScattered = std::sin(etaScattered);
+		cosEtaScattered = std::cos(etaScattered);
+		cosChiEjected = std::sqrt(electronEnergyEjected/netEnergy);
+		sinChiEjected = std::sqrt(1.0-cosChiEjected*cosChiEjected);
+		sinEtaEjected = -sinEtaScattered;
+		cosEtaEjected = -cosEtaScattered;	
+	}
+	else{
+		cosChiScattered = angularScatteringFunctions[chosenProcessID](incidentEnergy, electronEnergy, chosenProcessID, this);
+		sinChiScattered = std::sqrt(1.0-cosChiScattered*cosChiScattered);
+		double etaScattered = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
+		sinEtaScattered = std::sin(etaScattered);
+		cosEtaScattered = std::cos(etaScattered);
+		cosChiEjected = angularScatteringFunctions[chosenProcessID](incidentEnergy, electronEnergyEjected, chosenProcessID, this);
+		sinChiEjected = std::sqrt(1.0-cosChiEjected*cosChiEjected);
+		double etaEjected = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
+		sinEtaEjected = std::sin(etaEjected);
+		cosEtaEjected = std::cos(etaEjected);		
+	}	
+
+	// use Euler relations to calculate the electron velocity after the collision in the laboratory, knowing chi_scattered and eta in the CM frame (according with Yousfi 1994)
+	electronVelocity = std::sqrt(2.0*electronEnergy*Constant::electronCharge/Constant::electronMass) * 
+					   MathFunctions::eulerTransformation(sinChiScattered, cosChiScattered, sinEtaScattered, cosEtaScattered, sinTheta, cosTheta, sinPhi, cosPhi);
+
+	// use Euler relations to calculate the ejected electron velocity in the laboratory, knowing chi_ejected and eta in the CM frame
+	ejectedElectronVelocities.row(elecID) = std::sqrt(2.0*electronEnergyEjected*Constant::electronCharge/Constant::electronMass) *
+											MathFunctions::eulerTransformation(sinChiEjected, cosChiEjected, sinEtaEjected, cosEtaEjected, sinTheta, cosTheta, sinPhi, cosPhi);
+
+	// save the ejected energy to avoid recalculation
+	ejectedElectronEnergies[elecID] = electronEnergyEjected;
+
+	// create the electron in the same position as the scattered one
+	ejectedElectronPositions.row(elecID) = electronPosition;
+
+	// update the energy change (in eV) due to this collision
+	electronEnergyChanges[elecID] = -ionizationThreshold;
+	electronEnergyChangesOverIncidEnergies[elecID] = -ionizationThreshold/incidentEnergy;
+}
+
+void BoltzmannMC::attachmentCollision(int elecID, double incidentEnergy){
+	// 'attachmentCollision' solves the dynamics of an attachment collision
+
+	// update the energy change (in eV) due to this collision
+	electronEnergyChanges[elecID] = -incidentEnergy;
+	electronEnergyChangesOverIncidEnergies[elecID] = -1;
+}
+
+void BoltzmannMC::nonParallelCollisionTasks(){
+	// 'nonParallelCollisionTasks' performs all the tasks involving collisions that are not parallelized:
+	// increment collision counters, update the energy gain/loss in processes, create ejected electrons, destroy attached electrons
+	// IMPORTANT: now we conserve correctly the distribution of electrons. Attached electrons no longer participate in the duplication of electrons
+	// and the ejected electrons are treated in the same manner as the electrons that are in the "normal" ensemble. Previously, we were keeping always
+	// the ejected electrons which is NOT CORRECT. 
+
+	std::vector<bool> isAttached(nElectrons,false);
+	std::vector<int> ejectElectronIDs;
+	std::vector<int> attachElectronIDs;
+
+	for (int elecID = 0; elecID < nElectrons; ++elecID){
+
+		int chosenProcessID = chosenProcessIDs[elecID];
+
+		// if the electron was not advanced since it was already at the synchronization time
+		if (chosenProcessID == Constant::NON_DEF){
+			continue;
+		}
+
+		// update the energy gain due to the field
+		energyGainField += energyGainsField[elecID];
+
+		// update the collision counters
+
+		// null collision
+		if (chosenProcessID == GeneralDefinitions::nullCollisionID){
+			++nullCollisionCounter;
+			continue;
+		}
+		// did not reach the end of the free flight
+		else if (chosenProcessID == GeneralDefinitions::partialFreeFlightID){
+			continue;
+		}
+		// collision happened
+		else{
+			++collisionCounters[chosenProcessID];
+			++totalCollisionCounter;
+		}
+
+		// update the energy gain due to collisions
+		if (electronEnergyChanges[elecID] >= 0){
+			energyGainProcesses[chosenProcessID] += electronEnergyChanges[elecID];
+		}
+		else{
+			energyLossProcesses[chosenProcessID] += electronEnergyChanges[elecID];
+		}
+
+		// collect IDs that have ejected electrons
+		if (processTypes[chosenProcessID] == GeneralDefinitions::ionizationType){
+			ejectElectronIDs.push_back(elecID);
+		}
+		// collect IDs that have attached electrons
+		else if (processTypes[chosenProcessID] == GeneralDefinitions::attachmentType){
+			isAttached[elecID] = true;
+			attachElectronIDs.push_back(elecID);
+		}
+	}
+
+	int nEjected = ejectElectronIDs.size();
+
+	// replace the attached electrons
+	for (auto attachID: attachElectronIDs){
+		// if there are still ejected electrons, put the last one in the place of the attached one
+		if (nEjected > 0){
+			int ejElecID = ejectElectronIDs.back();
+			electronPositions.row(attachID) = ejectedElectronPositions.row(ejElecID);
+			electronVelocities.row(attachID) = ejectedElectronVelocities.row(ejElecID);
+			electronEnergies[attachID] = ejectedElectronEnergies[ejElecID];
+			electronTimes[attachID] = electronTimes[ejElecID];			
+			collisionFreeTimes[attachID] = Constant::NON_DEF;
+			trialCollisionFrequenciesEachElectron[attachID] = trialCollisionFrequency;
+			// the electron in this ID is no longer attached and can be used for the ensemble used for copying (done in the next "else")
+			isAttached[attachID] = false;
+			// eliminate the ID of the ejected electron
+			ejectElectronIDs.pop_back();
+			--nEjected;
+		}
+		// if there are no more ejected electrons, copy one electron that was NOT attached (this is important when attachment is strong)
+		else{
+			int randSelecID = std::fmin(MathFunctions::unitUniformRand(true,false)*nElectrons, nElectrons-1);
+			while (isAttached[randSelecID]){
+				randSelecID = std::fmin(MathFunctions::unitUniformRand(true,false)*nElectrons, nElectrons-1);
+			}
+			// add the energy change due to the growth profile
+			energyGrowth += electronEnergies[randSelecID];
+			// replace electron			
+			electronPositions.row(attachID) = electronPositions.row(randSelecID);
+			electronVelocities.row(attachID) = electronVelocities.row(randSelecID);
+			electronEnergies[attachID] = electronEnergies[randSelecID];
+			electronTimes[attachID] = electronTimes[randSelecID];			
+			collisionFreeTimes[attachID] = collisionFreeTimes[randSelecID];
+			trialCollisionFrequenciesEachElectron[attachID] = trialCollisionFrequenciesEachElectron[randSelecID];
+			// note: here we do not update isAttached, since we want to copy from the original distribution
+		}
+	}
+
+	// if there are more ejected electrons than attached ones
+	while (nEjected > 0){
+		// select an uniformly over the (nElectrons + nEjected) electrons
+		int randSelecID = std::fmin(MathFunctions::unitUniformRand(true,false)*(nElectrons+nEjected), nElectrons+nEjected-1);
+		// remove an electron from the "normal" ensemble and put there one of the ejected electrons
+		if (randSelecID < nElectrons){
+			int ejElecID = ejectElectronIDs.back();
+			// add the energy change due to the growth profile
+			energyGrowth -= electronEnergies[randSelecID];
+			// replace electron
+			electronPositions.row(randSelecID) = ejectedElectronPositions.row(ejElecID);
+			electronVelocities.row(randSelecID) = ejectedElectronVelocities.row(ejElecID);
+			electronEnergies[randSelecID] = ejectedElectronEnergies[ejElecID];
+			electronTimes[randSelecID] = electronTimes[ejElecID];		
+			collisionFreeTimes[randSelecID] = Constant::NON_DEF;
+			trialCollisionFrequenciesEachElectron[randSelecID] = trialCollisionFrequency;
+		}
+		// remove from the nEjected electrons
+		else{
+			randSelecID -= nElectrons;
+			// add the energy change due to the growth profile
+			energyGrowth -= ejectedElectronEnergies[ejectElectronIDs[randSelecID]];
+			// put the ID of the ejected electron in the last position, to be later removed
+			std::swap(ejectElectronIDs[randSelecID],ejectElectronIDs[nEjected-1]);
+		}
+		// eliminate the ID of the ejected electron
+		ejectElectronIDs.pop_back();
+		--nEjected;		
+	}
 }
 
 void BoltzmannMC::calculateMeanDataForSwarmParams(){
@@ -616,6 +1418,8 @@ void BoltzmannMC::calculateMeanDataForSwarmParams(){
 		meanVelocities.conservativeResize(2*nSamplingPoints, Eigen::NoChange);
 		fluxDiffusionCoeffs.conservativeResize(2*nSamplingPoints, Eigen::NoChange);
 		positionCovariances.conservativeResize(2*nSamplingPoints, Eigen::NoChange);
+		bulkVelocities.conservativeResize(2*nSamplingPoints, Eigen::NoChange);
+		bulkDiffusionCoeffs.conservativeResize(2*nSamplingPoints, Eigen::NoChange);
 	}
 
 	// check if the maximum energy is higher than the maximum energy limit
@@ -647,7 +1451,34 @@ void BoltzmannMC::calculateMeanDataForSwarmParams(){
 	positionCovariances.block(currentSamplingIndex, 6, 1, 3) = posCovariance.row(2);
 	fluxDiffusionCoeffs.block(currentSamplingIndex, 0, 1, 3) = fluxDiffCoeff.row(0); 
 	fluxDiffusionCoeffs.block(currentSamplingIndex, 3, 1, 3) = fluxDiffCoeff.row(1);
-	fluxDiffusionCoeffs.block(currentSamplingIndex, 6, 1, 3) = fluxDiffCoeff.row(2);	
+	fluxDiffusionCoeffs.block(currentSamplingIndex, 6, 1, 3) = fluxDiffCoeff.row(2);
+
+	if (currentSamplingIndex != 0){
+		bulkVelocities.row(currentSamplingIndex) = (meanPositions.row(currentSamplingIndex)-meanPositions.row(currentSamplingIndex-1))/(samplingTimes[currentSamplingIndex]-samplingTimes[currentSamplingIndex-1]);		
+		bulkDiffusionCoeffs.row(currentSamplingIndex) = 0.5*(positionCovariances.row(currentSamplingIndex)-positionCovariances.row(currentSamplingIndex-1))/(samplingTimes[currentSamplingIndex]-samplingTimes[currentSamplingIndex-1]);
+	}	
+	else{
+		// just for consistency, not relevant since it is not used for the temporal average
+		bulkVelocities.row(0) = meanVelocities.row(0);
+		bulkDiffusionCoeffs.row(0) = fluxDiffusionCoeffs.row(0);
+	}
+
+	// save results as a function of the period, when there is an AC frequency
+	// Do this only when steady-state has been found
+	if (excitationFrequencyRadians != 0 && steadyStateTime != Constant::NON_DEF){
+		// reduce the phase to 2*pi
+		double phase = std::fmod(excitationFrequencyRadians*time, 2.0*M_PI);
+		// find the corresponding idx of the phase, avoiding problems if phase is exactly 2*pi
+		int phaseIdx = std::fmin(std::floor(phase/integrationPhaseStep), nIntegrationPhases-1);
+		// increase the number of points for the corresponding idx 
+		nIntegrationPointsPerPhase[phaseIdx] += 1.0;
+		// sum the other quantities for the corresponding idx
+		meanEnergies_periodic[phaseIdx] += meanEnergies[currentSamplingIndex];
+		fluxVelocities_periodic.row(phaseIdx) += meanVelocities.row(currentSamplingIndex);
+		bulkVelocities_periodic.row(phaseIdx) += bulkVelocities.row(currentSamplingIndex);
+		fluxDiffusionCoeffs_periodic.row(phaseIdx) += fluxDiffusionCoeffs.row(currentSamplingIndex);
+		bulkDiffusionCoeffs_periodic.row(phaseIdx) += bulkDiffusionCoeffs.row(currentSamplingIndex);
+	}
 }
 
 void BoltzmannMC::getTimeAverageEnergyParams(){
@@ -661,17 +1492,77 @@ void BoltzmannMC::getTimeAverageEnergyParams(){
 void BoltzmannMC::getTimeDependDistributions(){
 	// 'getTimeDependDistributions' calculates the time-dependent quantities necessary to get the time-averaged distribution functions
 
-	// create the current electron energy histogram (eeh) and sum it to the previous ones 
-	eehSum += MathFunctions::histogramCount(electronEnergies, eedfEnergyNodes);	
+	// check if the grid for the calculation of eedf and anisotropies is to be updated
+	// we avoid to update the grid for evdf, since it is less relevant
+	if (maxElecEnergy > maxEedfEnergy){
+		// save temporarily the old grid variables
+		double oldEedfEnergyStep = eedfEnergyStep;
+		Eigen::ArrayXd oldEedfEnergyNodes = eedfEnergyNodes;
+		Eigen::ArrayXd oldEehSum = eehSum;
+		Eigen::ArrayXXd oldEahSum = eahSum;
+		Eigen::ArrayXXd oldEehSum_periodic = eehSum_periodic;
+		// update with an increasing factor of 1.2 to avoid constant updates
+		maxEedfEnergy = 1.2*maxElecEnergy;
+		// create the new grid and reset histograms to zero
+		eedfEnergyNodes = Eigen::ArrayXd::LinSpaced(nEnergyCells+1, 0.0, maxEedfEnergy);
+		eedfEnergyStep = eedfEnergyNodes[1];
+		eedfEnergyCells = Eigen::ArrayXd::LinSpaced(nEnergyCells, eedfEnergyStep/2.0, maxEedfEnergy-eedfEnergyStep/2.0);
+		eehSum = Eigen::ArrayXd::Zero(nEnergyCells);		
+		eahSum = Eigen::ArrayXXd::Zero(nEnergyCells, nCosAngleCells);
+		// map the values of the old grid into the new grid
+		for (int posOldGrid = 0; posOldGrid < nEnergyCells; ++posOldGrid){
+			double leftOldNodeEnergy = oldEedfEnergyNodes[posOldGrid];
+			double rightOldNodeEnergy = oldEedfEnergyNodes[posOldGrid+1];
+			// find the position of the nodes in the new grid (integer is rounded downwards)
+			int newLeftPos = leftOldNodeEnergy/eedfEnergyStep;
+			int newRightPos = rightOldNodeEnergy/eedfEnergyStep;
+			// if the two limits are contained in the same cell
+			if (newLeftPos == newRightPos){
+				eehSum[newLeftPos] += oldEehSum[posOldGrid];
+				eahSum.row(newLeftPos) += oldEahSum.row(posOldGrid);
+				if (excitationFrequencyRadians != 0){
+					for (int i = 0; i < nIntegrationPhases; ++i){
+						eehSum_periodic.col(newLeftPos) += oldEehSum_periodic.col(posOldGrid);
+					}
+				}
+			}
+			// else, the right limit is already in the next cell	
+			else{
+				double leftFraction = (eedfEnergyNodes[newRightPos]-leftOldNodeEnergy)/oldEedfEnergyStep;
+				eehSum[newLeftPos] += leftFraction*oldEehSum[posOldGrid];
+				eehSum[newRightPos] += (1.0-leftFraction)*oldEehSum[posOldGrid];
+				eahSum.row(newLeftPos) += leftFraction*oldEahSum.row(posOldGrid);
+				eahSum.row(newRightPos) += (1.0-leftFraction)*oldEahSum.row(posOldGrid);
+			}
+		}
 
-	// calculate the cos(angles) of the velocities relatively to the z axis
-	electronCosAngles = electronVelocities.col(2) / electronVelocities.matrix().rowwise().norm().array();
+		if ((oldEehSum.sum()-eehSum.sum())/eehSum.sum() > 1E-9 || (oldEehSum_periodic.sum()-eehSum_periodic.sum())/eehSum_periodic.sum() > 1E-9){
+			Message::error(std::string("old normalizer: ") + std::to_string(oldEehSum.sum()) + "\nnew normalizer: " + std::to_string(eehSum.sum()));
+		} 
+	}
 
-	// create the current electron angular histogram (eah) and sum it to the previous ones
-	eahSum += MathFunctions::histogram2DCount(electronEnergies, electronCosAngles, eedfEnergyNodes, cosAngleNodes);
+	// create the current electron energy histogram (eeh) and sum it to the previous ones
+	eeh = MathFunctions::histogramCount(electronEnergies, eedfEnergyNodes); 
+	eehSum += eeh;
+	// for conditions with AC E-field, do sampling along period
+	if (excitationFrequencyRadians != 0){
+		// reduce the phase to 2*pi
+		double phase = std::fmod(excitationFrequencyRadians*time, 2.0*M_PI);
+		// find the corresponding idx of the phase, avoiding problems if phase is exactly 2*pi
+		int phaseIdx = std::fmin(std::floor(phase/integrationPhaseStep), nIntegrationPhases-1); 		
+		eehSum_periodic.row(phaseIdx) += eeh;
+	}	
 
-	// create the current electron velocity histogram (evh) and sum it to the previous ones
-	evhSum += MathFunctions::histogram2DCount(Eigen::sqrt(electronVelocities.col(0).square() + electronVelocities.col(1).square()), electronVelocities.col(2), radialVelocityNodes, axialVelocityNodes);
+	if (isCylindricallySymmetric){
+		// calculate the cos(angles) of the velocities relatively to the z axis
+		electronCosAngles = electronVelocities.col(2) / electronVelocities.matrix().rowwise().norm().array();
+
+		// create the current electron angular histogram (eah) and sum it to the previous ones
+		eahSum += MathFunctions::histogram2DCount(electronEnergies, electronCosAngles, eedfEnergyNodes, cosAngleNodes);
+
+		// create the current electron velocity histogram (evh) and sum it to the previous ones
+		evhSum += MathFunctions::histogram2DCount(Eigen::sqrt(electronVelocities.col(0).square() + electronVelocities.col(1).square()), electronVelocities.col(2), radialVelocityNodes, axialVelocityNodes);
+	}
 }
 
 void BoltzmannMC::getTimeAverageDistributions(){
@@ -682,28 +1573,29 @@ void BoltzmannMC::getTimeAverageDistributions(){
 	// get the electron energy distribution function (eedf)
 	eedf = eehSum/(Eigen::sqrt(eedfEnergyCells)*normalizer*eedfEnergyStep);
 
-	// get the electron angular distribution function (eadf)
-	// Note: I had to multiply the eadf by two to obtain the correct values in the anisotropies (it is probably related with the contribution of the azymuthal angle)
-	for (int i = 0; i < nEnergyCells; ++i){
-		eadf.row(i) = 2.0*eahSum.row(i) / (std::sqrt(eedfEnergyCells[i]) * normalizer*eedfEnergyStep*cosAngleStep);
-	}
+	if (isCylindricallySymmetric){
+		// get the electron angular distribution function (eadf)
+		for (int i = 0; i < nEnergyCells; ++i){
+			eadf.row(i) = 2.0*eahSum.row(i) / (std::sqrt(eedfEnergyCells[i]) * normalizer*eedfEnergyStep*cosAngleStep);
+		}
 
-	// get the electron first-anisotropy distribution function (efadf)
-	Eigen::ArrayXd legendreWeights = cosAngleCells;
-	double anisotropyDegree = 1;
-	for (int i = 0; i < nEnergyCells; ++i){
-		efadf[i] = (anisotropyDegree+0.5) * (eadf.row(i).transpose()*legendreWeights).sum()*cosAngleStep;
-	}
+		// get the electron first-anisotropy distribution function (efadf)
+		Eigen::ArrayXd legendreWeights = cosAngleCells;
+		double anisotropyDegree = 1;
+		for (int i = 0; i < nEnergyCells; ++i){
+			efadf[i] = (anisotropyDegree+0.5) * (eadf.row(i).transpose()*legendreWeights).sum()*cosAngleStep;
+		}
 
-	// get the electron second-anisotropy distribution function (efadf)
-	legendreWeights = 0.5*(3.0*cosAngleCells.square() -1);
-	anisotropyDegree = 2;
-	for (int i = 0; i < nEnergyCells; ++i){
-		esadf[i] = (anisotropyDegree+0.5) * (eadf.row(i).transpose()*legendreWeights).sum()*cosAngleStep;
-	}
+		// get the electron second-anisotropy distribution function (efadf)
+		legendreWeights = 0.5*(3.0*cosAngleCells.square() -1);
+		anisotropyDegree = 2;
+		for (int i = 0; i < nEnergyCells; ++i){
+			esadf[i] = (anisotropyDegree+0.5) * (eadf.row(i).transpose()*legendreWeights).sum()*cosAngleStep;
+		}
 
-	// get the electron velocity distribution function (evdf)
-	evdf = evhSum / (evhSum.rowwise().sum()*axialVelocityStep*2.0*M_PI*radialVelocityCells*radialVelocityStep).sum();
+		// get the electron velocity distribution function (evdf)
+		evdf = evhSum / (evhSum.rowwise().sum()*axialVelocityStep*2.0*M_PI*radialVelocityCells*radialVelocityStep).sum();
+	}
 }
 
 void BoltzmannMC::getTimeAverageFluxParams(){
@@ -714,8 +1606,16 @@ void BoltzmannMC::getTimeAverageFluxParams(){
 	averagedFluxDriftVelocityError = MathFunctions::statisticalErrorColwise(meanVelocities.block(firstIntegrationIndex,0,nIntegrationPoints,3), 50);
 
 	// calculate the time-averaged flux diffusion coeffs (9 components)
-	averagedFluxDiffusionCoeffs = fluxDiffusionCoeffs.block(firstIntegrationIndex,0,nIntegrationPoints,9).colwise().mean();
-	averagedFluxDiffusionCoeffsError = MathFunctions::statisticalErrorColwise(fluxDiffusionCoeffs.block(firstIntegrationIndex,0,nIntegrationPoints,9), 50);
+	Eigen::ArrayXd averagedFluxDiffusionCoeffsLine = fluxDiffusionCoeffs.block(firstIntegrationIndex,0,nIntegrationPoints,9).colwise().mean();
+	Eigen::ArrayXd averagedFluxDiffusionCoeffsErrorLine = MathFunctions::statisticalErrorColwise(fluxDiffusionCoeffs.block(firstIntegrationIndex,0,nIntegrationPoints,9), 50);
+
+	// convert them into matrix
+	averagedFluxDiffusionCoeffs.row(0) = averagedFluxDiffusionCoeffsLine.segment(0,3);
+	averagedFluxDiffusionCoeffs.row(1) = averagedFluxDiffusionCoeffsLine.segment(3,3);
+	averagedFluxDiffusionCoeffs.row(2) = averagedFluxDiffusionCoeffsLine.segment(6,3);
+	averagedFluxDiffusionCoeffsError.row(0) = averagedFluxDiffusionCoeffsErrorLine.segment(0,3);
+	averagedFluxDiffusionCoeffsError.row(1) = averagedFluxDiffusionCoeffsErrorLine.segment(3,3);
+	averagedFluxDiffusionCoeffsError.row(2) = averagedFluxDiffusionCoeffsErrorLine.segment(6,3);	
 }
 
 void BoltzmannMC::getTimeAverageRateCoeffs(){
@@ -743,9 +1643,25 @@ void BoltzmannMC::getTimeAveragePowerBalance(){
 }
 
 void BoltzmannMC::getTimeAverageBulkParams(){
-	// 'getTimeAverageBulkParams' calculates the bulk swarm parameters using linear regressions of the swarm's center of mass and of the position covariances (performed only at end of the simulation, no impact in performance)
+	// 'getTimeAverageBulkParams' calculates the bulk swarm parameters from the swarm's center of mass and of the position covariances
 
-	double c0, c1, cov00, cov01, cov11, sumsq;
+	// calculate the time-averaged bulk drift velocity
+	averagedBulkDriftVelocity = bulkVelocities.block(firstIntegrationIndex,0,nIntegrationPoints,3).colwise().mean();
+	averagedBulkDriftVelocityError = MathFunctions::statisticalErrorColwise(bulkVelocities.block(firstIntegrationIndex,0,nIntegrationPoints,3), 50);
+
+	// calculate the time-averaged bulk diffusion coeffs (9 components)
+	Eigen::ArrayXd averagedBulkDiffusionCoeffsLine = bulkDiffusionCoeffs.block(firstIntegrationIndex,0,nIntegrationPoints,9).colwise().mean();
+	Eigen::ArrayXd averagedBulkDiffusionCoeffsErrorLine = MathFunctions::statisticalErrorColwise(bulkDiffusionCoeffs.block(firstIntegrationIndex,0,nIntegrationPoints,9), 50);
+
+	// convert them into matrix
+	averagedBulkDiffusionCoeffs.row(0) = averagedBulkDiffusionCoeffsLine.segment(0,3);
+	averagedBulkDiffusionCoeffs.row(1) = averagedBulkDiffusionCoeffsLine.segment(3,3);
+	averagedBulkDiffusionCoeffs.row(2) = averagedBulkDiffusionCoeffsLine.segment(6,3);
+	averagedBulkDiffusionCoeffsError.row(0) = averagedBulkDiffusionCoeffsErrorLine.segment(0,3);
+	averagedBulkDiffusionCoeffsError.row(1) = averagedBulkDiffusionCoeffsErrorLine.segment(3,3);
+	averagedBulkDiffusionCoeffsError.row(2) = averagedBulkDiffusionCoeffsErrorLine.segment(6,3);	
+
+	/*double c0, c1, cov00, cov01, cov11, sumsq;
 
 	int nSlices = 20;
 	int nSlicePoints = nIntegrationPoints/nSlices;
@@ -780,10 +1696,11 @@ void BoltzmannMC::getTimeAverageBulkParams(){
 	// the diffusion coeffs are organized in a row: xx xy xz yx yy yz zx zy zz
 
 	Eigen::ArrayXXd halfCovariances = 0.5*positionCovariances;
+	Eigen::ArrayXd averagedBulkDiffusionCoeffsLine(9);
 
 	for (int i = 0; i < 9; ++i){
 		gsl_fit_linear(integrationTimes.data(), 1, halfCovariances.col(i).data(), 1, nIntegrationPoints, &c0, &c1, &cov00, &cov01 , &cov11, &sumsq);
-		averagedBulkDiffusionCoeffs[i] = c1;
+		averagedBulkDiffusionCoeffsLine[i] = c1;
 	}
 
 	// divide the integration time in 20 slices, in order to estimate the error
@@ -799,277 +1716,21 @@ void BoltzmannMC::getTimeAverageBulkParams(){
 		}
 	}
 	mean = sum / (double) nSlices;
-	averagedBulkDiffusionCoeffsError = Eigen::sqrt((squaredSum/(double)nSlices - mean.square())/nSlices);
+	Eigen::ArrayXd averagedBulkDiffusionCoeffsErrorLine = Eigen::sqrt((squaredSum/(double)nSlices - mean.square())/nSlices);*/	
 }
 
-void BoltzmannMC::performCollisions(){
-	// 'performCollisions' selects the process that each electron suffers and solves the associated dynamics
-
-	// for each electron
-	#pragma omp parallel for
-	for (int elecID = 0; elecID < (int)nElectrons; ++elecID){
-
-		// get the temporary values of the position and the velocity
-		Eigen::Array3d electronPosition = electronPositions.row(elecID);
-		Eigen::Array3d electronVelocity = electronVelocities.row(elecID);
-		Eigen::Array3d targetVelocity = Eigen::Array3d::Zero();
-
-		// save the energy before the collision (in eV)
-		double incidentEnergy = electronEnergies[elecID];
-
-		// ----- select the process ----- // 
-
-		int chosenProcessID = -1;
-		if (gasTemperatureEffect == 1 || (gasTemperatureEffect == 2 && incidentEnergy < 20.0*gasEnergy)){
-			double sumCrossSectionFactor = 0;
-			double randCrossSectionFactor = trialCollisionFrequency * MathFunctions::unitUniformRand(false,true) / totalGasDensity;
-			double incidentSpeed = electronVelocity.matrix().norm(), relativeSpeed;
-			int incEnergyIndex = std::fmin(std::floor(incidentEnergy/crossSectionEnergyStep), interpolCrossSectionSize-1), relEnergyIndex;
-			int previousTargetGasID = -1;
-			for (int iterProcess = 0; iterProcess < nProcesses; ++iterProcess){
-				// calculate the target random velocity and the relative energy index only if the gas differs from the previous iteration
-				if (targetGasIDs[iterProcess] != previousTargetGasID){
-					previousTargetGasID = targetGasIDs[iterProcess];
-					targetVelocity[0] = MathFunctions::unitNormalRand(); targetVelocity[1] = MathFunctions::unitNormalRand(); targetVelocity[2] = MathFunctions::unitNormalRand();
-					targetVelocity *= thermalStdDeviations[iterProcess];
-					// calculate the relative speed and the respective energy index of the grid
-					relativeSpeed = (electronVelocity-targetVelocity).matrix().norm();
-					relEnergyIndex = std::fmin(std::floor(0.5*reducedMasses[iterProcess]*relativeSpeed*relativeSpeed/Constant::electronCharge/crossSectionEnergyStep), 
-											  interpolCrossSectionSize-1);
-				}
-
-				if (isIonization[iterProcess]){
-					sumCrossSectionFactor += interpolCrossSectionsXrelDens[iterProcess][incEnergyIndex] * incidentSpeed;
-				}
-				else{
-					sumCrossSectionFactor += interpolCrossSectionsXrelDens[iterProcess][relEnergyIndex] * relativeSpeed;
-				}
-
-				// check if the cumulative factor surpassed the random factor, i.e., if this process is to be chosen
-				if (sumCrossSectionFactor >= randCrossSectionFactor){
-					chosenProcessID = iterProcess;
-					chosenProcessIDs[elecID] = chosenProcessID;
-					break;
-				}
-			}
-			// check if this is a null collision
-			if (chosenProcessID == -1){
-				chosenProcessIDs[elecID] = -1;
-				continue;
-			}
-		}
-		else{
-			double randCollisionFrequency = trialCollisionFrequency * MathFunctions::unitUniformRand(false,true);
-			int incEnergyIndex = std::fmin(std::floor(incidentEnergy/crossSectionEnergyStep), interpolCrossSectionSize-1);
-			// check if this is a null collision
-			if (randCollisionFrequency > totalCollisionFrequencies[incEnergyIndex]){
-				chosenProcessIDs[elecID] = -1;
-				continue;				
-			}
-
-			// use a bissection method to find the process ID. Only possible when the gas-temperature effect is not considered
-			double randCrossSectionFactor = randCollisionFrequency / totalGasDensity / electronVelocity.matrix().norm();
-			int leftLimit = 0;
-			int rightLimit = nProcesses-1;
-
-			while(leftLimit != rightLimit){
-
-				// get the tentative index. Note that in this operation, the result is rounded downwards (see arithmetic rules of integers in c++)
-				int tentativeIndex = (leftLimit + rightLimit)/2;
-
-				// if the cumulative value of the tentative index is greater than the random value, the solution is in the left side
-				double tentativeValue = cumulSumInterpolCrossSectionsXrelDens[tentativeIndex][incEnergyIndex];
-				if (randCrossSectionFactor < tentativeValue){
-					rightLimit = tentativeIndex;
-				}
-				// if the cumulative value of the tentative index is smaller than the random value, the solution is in the right side
-				else if (randCrossSectionFactor > tentativeValue){
-					leftLimit = tentativeIndex + 1;
-				}
-				else{
-					chosenProcessID = tentativeIndex;
-					break;
-				}
-			}
-
-			if (leftLimit == rightLimit){
-				chosenProcessID = leftLimit;
-			}
-
-			// avoid collisions with null rates
-			while (interpolCrossSectionsXrelDens[chosenProcessID][incEnergyIndex] == 0){
-				--chosenProcessID;
-			}
-
-			// save the chosen process ID
-			chosenProcessIDs[elecID] = chosenProcessID;		
-		}
-
-		// ----- calculate the velocity after the collision ----- //
-
-		if (processTypes[chosenProcessID] == conservativeType){
-			conservativeCollision(elecID, electronPosition, electronVelocity, targetVelocity, incidentEnergy, chosenProcessID);
-		}
-
-		else if (processTypes[chosenProcessID] == ionizationType){
-			ionizationCollision(elecID, electronPosition, electronVelocity, incidentEnergy, chosenProcessID);
-		}
-
-		else if (processTypes[chosenProcessID] == attachmentType){
-			attachmentCollision(elecID, incidentEnergy);
-		}
-
-		// update the electron position and velocity
-		electronPositions.row(elecID) = electronPosition;
-		electronVelocities.row(elecID) = electronVelocity;
-	}
-
-	// perform all the tasks involving collisions that cannot be parallelized
-	nonParallelCollisionTasks();
-}
-
-void BoltzmannMC::conservativeCollision(int elecID, Eigen::Array3d &electronPosition, Eigen::Array3d &electronVelocity, Eigen::Array3d &targetVelocity, double incidentEnergy, int chosenProcessID){
-	// 'convervativeCollision' solves the dynamics of a conservative collision, i.e., a collision without changes in the electron number
-	// Important note: for gasTemperatureEffect = 1, it was verified that the energy of the system [electron + target] is conserved!
-
-	double targetMass = targetMasses[chosenProcessID];
-
-	if (gasTemperatureEffect == 1 || (gasTemperatureEffect == 2 && incidentEnergy < 20.0*gasEnergy)){
-		// calculate the relative velocity before the collision and convert it to spherical coordinates
-		Eigen::Array3d relVelocityBefore = electronVelocity - targetVelocity;
-		double relSpeedBefore, thetaRelVel, phiRelVel;
-		MathFunctions::cart2sph(relVelocityBefore, relSpeedBefore, thetaRelVel, phiRelVel);
-
-		// calculate the relative speed after the collision, using energy conservation (note that the energy must be converted from eV to SI)
-		// use Euler relations to calculate the relative velocity after the collision in the laboratory, knowing chi and eta in the CM frame
-		// the scattering angles are generated assuming isotropic scattering in the CM frame
-		Eigen::Array3d relVelocityAfter = std::sqrt(relSpeedBefore*relSpeedBefore-2.0/reducedMasses[chosenProcessID]*energyLosses[chosenProcessID]*Constant::electronCharge)* 
-								   MathFunctions::eulerTransformation(std::acos(1.0-2.0*MathFunctions::unitUniformRand(true,true)), 2.0*M_PI*MathFunctions::unitUniformRand(false,true), thetaRelVel, phiRelVel);
-
-		// get the electron velocity after the collision using the conservation of momentum transfer
-		electronVelocity = targetMass/(Constant::electronMass+targetMass)*relVelocityAfter +
-						   (Constant::electronMass*electronVelocity + targetMass*targetVelocity)/(Constant::electronMass+targetMass);
-	}
-	else{
-		// convert the velocity of the incident electron to spherical coordinates
-		double electronSpeed, theta, phi;
-		MathFunctions::cart2sph(electronVelocity, electronSpeed, theta, phi);
-
-		double chiScattered = std::acos(1.0-2.0*MathFunctions::unitUniformRand(true,true));
-
-		// calculate the electron speed after the collision, using energy conservation and assuming a target molecule at rest (due to the high mass) [Reid 1979]
-		// use Euler relations to determine the velocity after the collision
-		electronVelocity = std::sqrt((electronSpeed*electronSpeed-2.0/Constant::electronMass*energyLosses[chosenProcessID]*Constant::electronCharge) * 
-							    (1.0-2.0*Constant::electronMass*targetMass/(Constant::electronMass+targetMass)/(Constant::electronMass+targetMass)*(1.0-std::cos(chiScattered))))*
-						   MathFunctions::eulerTransformation(chiScattered, 2.0*M_PI*MathFunctions::unitUniformRand(false,true), theta, phi);
-	}
-
-	// calculate the energy change (in eV) due to this collision
-	electronEnergyChanges[elecID] = 0.5*Constant::electronMass*electronVelocity.matrix().squaredNorm() / Constant::electronCharge - incidentEnergy;
-}
-
-void BoltzmannMC::ionizationCollision(int elecID, Eigen::Array3d &electronPosition, Eigen::Array3d &electronVelocity, double incidentEnergy, int chosenProcessID){
-	// 'ionizationCollision' solves the dynamics of an ionization collision
-
-	// convert the velocity of the incident electron to spherical coordinates
-	double electronSpeed, theta, phi;
-	MathFunctions::cart2sph(electronVelocity, electronSpeed, theta, phi);
-
-	// calculate the speeds of the scattered and ejected electrons, assuming a background of molecules at rest
-	double netEnergy = incidentEnergy - energyLosses[chosenProcessID];
-	double electronEnergyEjected;
-	if (usingSDCS){
-		electronEnergyEjected = wParameters[chosenProcessID]*std::tan(MathFunctions::unitUniformRand(true,true) * std::atan(netEnergy/(2.0*wParameters[chosenProcessID])) );
-	}
-	else{
-		electronEnergyEjected = energySharingFactor*netEnergy;
-	}
-	double electronEnergyScattered = netEnergy - electronEnergyEjected;
-
-	double chiScattered, chiEjected, etaScattered, etaEjected;
-	if (isoScatteringIonization){
-		chiScattered = std::acos(1.0-2.0*MathFunctions::unitUniformRand(true,true));
-		etaScattered = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
-		chiEjected = std::acos(1.0-2.0*MathFunctions::unitUniformRand(true,true));
-		etaEjected = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
-	}
-	else{
-		// generate the scattering angles, assuming that the incident, scattered and ejected electron velocities are coplanar
-		// and that the scattered and ejected electron velocities are perpendicular in the CM frame (according with Boeuf 1982)
-		chiScattered = std::acos(std::sqrt(electronEnergyScattered/netEnergy));
-		etaScattered = 2.0*M_PI*MathFunctions::unitUniformRand(false,true);
-		chiEjected = M_PI/2.0-chiScattered;
-		etaEjected = etaScattered+M_PI;
-	}
-
-	// use Euler relations to calculate the electron velocity after the collision in the laboratory, knowing chi_scattered and eta in the CM frame (according with Yousfi 1994)
-	electronVelocity = std::sqrt(2.0*electronEnergyScattered*Constant::electronCharge/Constant::electronMass) * 
-					   MathFunctions::eulerTransformation(chiScattered, etaScattered, theta, phi);
-
-	// use Euler relations to calculate the ejected electron velocity in the laboratory, knowing chi_ejected and eta in the CM frame
-	ejectedElectronVelocities.row(elecID) = std::sqrt(2.0*electronEnergyEjected*Constant::electronCharge/Constant::electronMass) *
-											MathFunctions::eulerTransformation(chiEjected, etaEjected, theta, phi);
-
-	// create the electron in the same position as the scattered one
-	ejectedElectronPositions.row(elecID) = electronPosition;
-
-	// update the energy change (in eV) due to this collision
-	electronEnergyChanges[elecID] = -energyLosses[chosenProcessID];
-}
-
-void BoltzmannMC::attachmentCollision(int elecID, double incidentEnergy){
-	// 'attachmentCollision' solves the dynamics of an attachment collision
-
-	// update the energy change (in eV) due to this collision
-	electronEnergyChanges[elecID] = -incidentEnergy;
-}
-
-void BoltzmannMC::nonParallelCollisionTasks(){
-	// 'nonParallelCollisionTasks' performs all the tasks involving collisions that are not parallelized:
-	// increment collision counters, update the energy gain/loss in processes, create ejected electrons, destroy attached electrons
-
-	for (int elecID = 0; elecID < nElectrons; ++elecID){
-
-		int chosenProcessID = chosenProcessIDs[elecID];
-
-		// update the collision counters
-		if (chosenProcessID == -1){
-			++nullCollisionCounter;
-			continue;
-		}
-		else{
-			++collisionCounters[chosenProcessID];
-			++totalCollisionCounter;
-		}
-
-		// update the energy gain
-		if (electronEnergyChanges[elecID] >= 0){
-			energyGainProcesses[chosenProcessID] += electronEnergyChanges[elecID];
-		}
-		else{
-			energyLossProcesses[chosenProcessID] += electronEnergyChanges[elecID];
-		}
-
-		// if it is an ionization process, create the ejected electron and eliminate a randomly chosen electron
-		if (processTypes[chosenProcessID] == ionizationType){
-			// select the electron that will be replaced
-			int selectedID = std::fmin(std::floor(MathFunctions::unitUniformRand(true,false)*nElectrons), nElectrons-1);
-			// calculate the energy change due to the growth profile
-			energyGrowth -= 0.5*Constant::electronMass/Constant::electronCharge*electronVelocities.row(selectedID).matrix().squaredNorm();
-			// update the position and velocity of the selected electron
-			electronPositions.row(selectedID) = ejectedElectronPositions.row(elecID);
-			electronVelocities.row(selectedID) = ejectedElectronVelocities.row(elecID);
-		}
-		// if it is an attachment process, eliminate the attached electron and copy a randomly chosen electron
-		else if (processTypes[chosenProcessID] == attachmentType){
-			// select the electron that will be copied
-			int selectedID = std::fmin(std::floor(MathFunctions::unitUniformRand(true,false)*nElectrons), nElectrons-1);
-			// calculate the energy change due to the growth profile
-			energyGrowth += 0.5*Constant::electronMass/Constant::electronCharge*electronVelocities.row(selectedID).matrix().squaredNorm();
-			// copy the position and velocity to the ID of the 'destroyed' electron
-			electronPositions.row(elecID) = electronPositions.row(selectedID);
-			electronVelocities.row(elecID) = electronVelocities.row(selectedID);
-		}
+void BoltzmannMC::getAveragedPeriodicParams(){
+	// obtain the average values per phase: divide the summed quantities by the number of integration points per phase
+	meanEnergies_periodic /= nIntegrationPointsPerPhase;
+	fluxVelocities_periodic.colwise() /= nIntegrationPointsPerPhase;
+	bulkVelocities_periodic.colwise() /= nIntegrationPointsPerPhase;
+	fluxDiffusionCoeffs_periodic.colwise() /= nIntegrationPointsPerPhase;
+	bulkDiffusionCoeffs_periodic.colwise() /= nIntegrationPointsPerPhase;
+	// get the electron energy distribution functions (eedf) along the period
+	Eigen::ArrayXd normalizer = eehSum_periodic.rowwise().sum();
+	Eigen::ArrayXd aux = Eigen::sqrt(eedfEnergyCells);
+	for (int i = 0; i < nIntegrationPhases; ++i){
+		eedf_periodic.row(i) = eehSum_periodic.row(i)/(aux.matrix().transpose().array()*normalizer[i]*eedfEnergyStep);
 	}
 }
 
@@ -1078,15 +1739,22 @@ void BoltzmannMC::checkStatisticalErrors(){
 
 	getTimeAverageEnergyParams();
 	getTimeAverageFluxParams();
+	getTimeAverageBulkParams();
 	checkPowerBalance();
 
-	double relErrorAbsVelocity = (std::abs(averagedFluxDriftVelocity[0])*averagedFluxDriftVelocityError[0] + std::abs(averagedFluxDriftVelocity[1])*averagedFluxDriftVelocityError[1] + 
+	double relErrorAbsFluxVelocity = (std::abs(averagedFluxDriftVelocity[0])*averagedFluxDriftVelocityError[0] + std::abs(averagedFluxDriftVelocity[1])*averagedFluxDriftVelocityError[1] + 
 								  std::abs(averagedFluxDriftVelocity[2])*averagedFluxDriftVelocityError[2]) / averagedFluxDriftVelocity.matrix().squaredNorm();
+	double relErrorAbsBulkVelocity = (std::abs(averagedBulkDriftVelocity[0])*averagedBulkDriftVelocityError[0] + std::abs(averagedBulkDriftVelocity[1])*averagedBulkDriftVelocityError[1] + 
+								  std::abs(averagedBulkDriftVelocity[2])*averagedBulkDriftVelocityError[2]) / averagedBulkDriftVelocity.matrix().squaredNorm();								  
 	if (averagedMeanEnergyError/averagedMeanEnergy <= requiredMeanEnergyRelError &&
-		relErrorAbsVelocity <= requiredFluxDriftVelocityRelError &&
-		averagedFluxDiffusionCoeffsError[0]/averagedFluxDiffusionCoeffs[0] <= requiredFluxDiffusionCoeffsRelError &&
-		averagedFluxDiffusionCoeffsError[4]/averagedFluxDiffusionCoeffs[4] <= requiredFluxDiffusionCoeffsRelError &&
-		averagedFluxDiffusionCoeffsError[8]/averagedFluxDiffusionCoeffs[8] <= requiredFluxDiffusionCoeffsRelError &&
+		relErrorAbsFluxVelocity <= requiredFluxDriftVelocityRelError &&
+		averagedFluxDiffusionCoeffsError(0,0)/averagedFluxDiffusionCoeffs(0,0) <= requiredFluxDiffusionCoeffsRelError &&
+		averagedFluxDiffusionCoeffsError(1,1)/averagedFluxDiffusionCoeffs(1,1) <= requiredFluxDiffusionCoeffsRelError &&
+		averagedFluxDiffusionCoeffsError(2,2)/averagedFluxDiffusionCoeffs(2,2) <= requiredFluxDiffusionCoeffsRelError &&
+		relErrorAbsBulkVelocity <= requiredBulkDriftVelocityRelError &&
+		averagedBulkDiffusionCoeffsError(0,0)/averagedBulkDiffusionCoeffs(0,0) <= requiredBulkDiffusionCoeffsRelError &&
+		averagedBulkDiffusionCoeffsError(1,1)/averagedBulkDiffusionCoeffs(1,1) <= requiredBulkDiffusionCoeffsRelError &&
+		averagedBulkDiffusionCoeffsError(2,2)/averagedBulkDiffusionCoeffs(2,2) <= requiredBulkDiffusionCoeffsRelError &&		
 		powerBalanceRelError <= requiredPowerBalanceRelError){
 		goodStatisticalErrors = true;
 	}
@@ -1114,30 +1782,49 @@ void BoltzmannMC::checkSteadyState(){
 	// 'checkSteadyState' verifies if the steady-state has been reached, by checking if 
 	// the mean energy of the interval 50-75% is larger than the one of the interval 75-100%
 
-	int checkPoints = nSamplingPoints*0.25;
-	double averageFirstPart = meanEnergies.segment(nSamplingPoints-1-2*checkPoints, checkPoints).mean();
-	double averageSecondPart = meanEnergies.segment(nSamplingPoints-1-checkPoints, checkPoints).mean();
-	double relStdSecondPart = MathFunctions::standardDeviation(meanEnergies.segment(nSamplingPoints-1-checkPoints, checkPoints))/std::sqrt(checkPoints-1) / averageSecondPart;
+	// determine the mean value of [0.5*time,0.75*time] and [0.75*time,time], and the std of [0.75*time,time]
+	double t1 = 0.5*time, t2 = 0.75*time;
+	double averageFirstPart = 0;
+	double averageSecondPart = 0;
+	double relStdSecondPart = 0;
+	int nFirst = 0, nSecond = 0;
+	for (int i = 0; i < nSamplingPoints; ++i){
+		double sampTime = samplingTimes[i];
+		if (sampTime >= t1 && sampTime <= t2){
+			averageFirstPart += meanEnergies[i];
+			++nFirst;
+		}
+		else if(sampTime > t2){
+			double val = meanEnergies[i];
+			averageSecondPart += val;
+			relStdSecondPart += val*val;
+			++nSecond;
+		}	
+	}
+	averageFirstPart /= nFirst;
+	averageSecondPart /= nSecond;
+	relStdSecondPart = std::sqrt((relStdSecondPart/nSecond-averageSecondPart*averageSecondPart)/nSecond);
 
-	if ((averageFirstPart >= averageSecondPart && relStdSecondPart < 0.01)  || totalCollisionCounter >= maxCollisionsBeforeSteadyState){
+	// check both averages and the std of the second part
+	if ((averageFirstPart >= averageSecondPart && relStdSecondPart < 0.01)  || totalCollisionCounter >= maxCollisionsBeforeSteadyState){ 
 
 		if (totalCollisionCounter >= maxCollisionsBeforeSteadyState){
 			if (dispMCStatus){
 				std::cout<<" "<<std::endl;
-				for (int i = 0; i < 23; ++i){
+				for (int i = 0; i < 30; ++i){
 					// move up in the terminal
 					std::printf("%c[1A", 0x1B);
 					// clear terminal line
 					std::printf("%c[2K", 0x1B);
 				}
-				Message::warning("Steady-state imposed by the parameter 'maxCollisionsBeforeSteadyState'. The electron energy may not be stabilized yet. [E/N = " + std::to_string(reducedElecField) + " Td]\n");
-				for (int i = 0; i < 22; ++i){
+				Message::warning("Steady-state imposed by the parameter 'maxCollisionsBeforeSteadyState'. The electron energy may not be stabilized yet. [E/N = " + std::to_string(reducedElecField) + " Td, excitFreq = " + std::to_string(excitationFrequency) + " Hz, E-angle = " + std::to_string(elecFieldAngle) + " deg, B/N = " + std::to_string(reducedMagField) + " Hx]\n");
+				for (int i = 0; i < 29; ++i){
 					std::printf("\n");
 				}
 				dispInfo();
 			}
 			else{
-				Message::warning("Steady-state imposed by the parameter 'maxCollisionsBeforeSteadyState'. The electron energy may not be stabilized yet. [E/N = " + std::to_string(reducedElecField) + " Td]\n");
+				Message::warning("Steady-state imposed by the parameter 'maxCollisionsBeforeSteadyState'. The electron energy may not be stabilized yet. [E/N = " + std::to_string(reducedElecField) + " Td, excitFreq = " + std::to_string(excitationFrequency) + " Hz, E-angle = " + std::to_string(elecFieldAngle) + " deg, B/N = " + std::to_string(reducedMagField) + " Hx]\n");
 			}
 		}
 
@@ -1166,7 +1853,7 @@ void BoltzmannMC::checkSteadyState(){
 		totalIntegratedTime = 0;
 
 		// initialize all variables related with the energy swarm parameters
-		maxEedfEnergy = 1.75*maxElecEnergy;
+		maxEedfEnergy = 1.2*maxElecEnergy;
 		eedfEnergyNodes = Eigen::ArrayXd::LinSpaced(nEnergyCells+1, 0.0, maxEedfEnergy);
 		eedfEnergyStep = eedfEnergyNodes[1];
 		eedfEnergyCells = Eigen::ArrayXd::LinSpaced(nEnergyCells, eedfEnergyStep/2.0, maxEedfEnergy-eedfEnergyStep/2.0);
@@ -1188,6 +1875,14 @@ void BoltzmannMC::checkSteadyState(){
 		axialVelocityStep = axialVelocityNodes[1]+maxSpeed;
 		axialVelocityCells = Eigen::ArrayXd::LinSpaced(nAxialVelocityCells, -maxSpeed+axialVelocityStep/2.0, maxSpeed-axialVelocityStep/2.0);		
 		evhSum = Eigen::ArrayXXd::Zero(nRadialVelocityCells, nAxialVelocityCells); evdf = Eigen::ArrayXXd::Zero(nRadialVelocityCells, nAxialVelocityCells);
+
+		// for AC E-field conditions (integration along the period)
+		if (excitationFrequencyRadians != 0){
+			eehSum_periodic = Eigen::ArrayXXd::Zero(nIntegrationPhases, nEnergyCells);
+			eedf_periodic = Eigen::ArrayXXd::Zero(nIntegrationPhases, nEnergyCells);
+		}
+
+		getTimeDependDistributions();
 	}
 }
 
@@ -1203,19 +1898,24 @@ void BoltzmannMC::dispInfo(){
 	}
 	else{
 		std::cout<<" "<<std::endl;
-		for (int i = 0; i < 21 ; ++i){
+		for (int i = 0; i < 30 ; ++i){
 			std::printf("%s",terminal_moveup);
 			std::printf("%s",terminal_clearline);
 		}
 	}
 
-	std::cout<<"E/N: "<<reducedElecField<<" Td\n\n";
-	std::cout<<"Number of real collisions: "<<(double)totalCollisionCounter<<std::endl;
-	std::cout<<"Number of null collisions: "<<(double)nullCollisionCounter<<std::endl<<std::endl;
+	std::cout<<"E/N: "<<reducedElecField<<" Td\n";
+	std::cout<<"excitFreq: "<<excitationFrequency<<" Hz\n";
+	std::cout<<"E-field angle: "<<elecFieldAngle<<" degrees\n";
+	std::cout<<"B/N: "<<reducedMagField<<" Hx\n\n";
+	std::cout<<"Number of real collisions: "<<(double)totalCollisionCounter<<"\n";
+	std::cout<<"Number of null collisions: "<<(double)nullCollisionCounter<<"\n\n";
 	std::cout<<"Current time: "<<time<<" s\n";
 	if (steadyStateTime == Constant::NON_DEF){
-		std::cout<<"Steady-state time: "<<"non-defined\n\n";
-		std::cout<<"\n\n\n\n\n\n\n\n\n\n\n\n";
+		std::cout<<"Mean energy: "<<meanEnergies[currentSamplingIndex]<<"\n";
+		for (int i = 0; i < 19; ++i){
+			std::printf("\n");
+		}	
 	}
 	else{
 		std::cout<<"Steady-state time: "<<steadyStateTime<<" s\n\n";
@@ -1225,13 +1925,18 @@ void BoltzmannMC::dispInfo(){
 			std::cout<<"Relative error: "<<averagedMeanEnergyError/averagedMeanEnergy<<"\n\n";
 			std::cout<<"Flux drift velocity [m/s]: "<<averagedFluxDriftVelocity.transpose()<<std::endl;
 			std::cout<<"Relative error: "<<(averagedFluxDriftVelocityError/Eigen::abs(averagedFluxDriftVelocity)).transpose()<<"\n\n";
-			std::cout<<"Flux diffusion coefficients [m^2 s^-1]: "<<averagedFluxDiffusionCoeffs[0]<<" "<<averagedFluxDiffusionCoeffs[4]<<" "<<averagedFluxDiffusionCoeffs[8]<<std::endl;
-			Eigen::ArrayXd temp = averagedFluxDiffusionCoeffsError/averagedFluxDiffusionCoeffs;
-			std::cout<<"Relative error: "<<temp[0]<<" "<<temp[4]<<" "<<temp[8]<<"\n\n";
+			std::cout<<"Bulk drift velocity [m/s]: "<<averagedBulkDriftVelocity.transpose()<<std::endl;
+			std::cout<<"Relative error: "<<(averagedBulkDriftVelocityError/Eigen::abs(averagedBulkDriftVelocity)).transpose()<<"\n\n";			
+			std::cout<<"Flux diffusion coefficients [m^2 s^-1]: "<<averagedFluxDiffusionCoeffs(0,0)<<" "<<averagedFluxDiffusionCoeffs(1,1)<<" "<<averagedFluxDiffusionCoeffs(2,2)<<std::endl;
+			std::cout<<"Relative error: "<<averagedFluxDiffusionCoeffsError(0,0)/averagedFluxDiffusionCoeffs(0,0)<<" "<<averagedFluxDiffusionCoeffsError(1,1)/averagedFluxDiffusionCoeffs(1,1)<<" "<<averagedFluxDiffusionCoeffsError(2,2)/averagedFluxDiffusionCoeffs(2,2)<<"\n\n";
+			std::cout<<"Bulk diffusion coefficients [m^2 s^-1]: "<<averagedBulkDiffusionCoeffs(0,0)<<" "<<averagedBulkDiffusionCoeffs(1,1)<<" "<<averagedBulkDiffusionCoeffs(2,2)<<std::endl;
+			std::cout<<"Relative error: "<<averagedBulkDiffusionCoeffsError(0,0)/averagedBulkDiffusionCoeffs(0,0)<<" "<<averagedBulkDiffusionCoeffsError(1,1)/averagedBulkDiffusionCoeffs(1,1)<<" "<<averagedBulkDiffusionCoeffsError(2,2)/averagedBulkDiffusionCoeffs(2,2)<<"\n\n";			
 			std::cout<<"Power balance relative error: "<<powerBalanceRelError<<"\n";
 		}
 		else{
-			std::cout<<"\n\n\n\n\n\n\n\n\n\n\n\n";
+			for (int i = 0; i < 18; ++i){
+				std::printf("\n");
+			}	
 		}
 	}
 }
@@ -1354,31 +2059,33 @@ void BoltzmannMC::evaluateSwarmParameters(){
 
 	double reducedElecFieldSI = workCond->reducedElecFieldSI;
 
-	// ----- initialize transport parameters structure -----/
-	swarmParam["fluxRedTransvDiffCoeff"] = 0; swarmParam["fluxRedTransvDiffCoeffError"] = 0; swarmParam["fluxRedLongDiffCoeff"] = 0; swarmParam["fluxRedLongDiffCoeffError"] = 0;
-	swarmParam["fluxRedMobCoeff"] = 0; swarmParam["fluxRedMobCoeffError"] = 0;
-	swarmParam["fluxRedTownsendCoeff"] = 0; swarmParam["fluxRedTownsendCoeffError"] = 0;
-	swarmParam["fluxRedAttCoeff"] = 0; swarmParam["fluxRedAttCoeffError"] = 0;
-	swarmParam["fluxCharacEnergy"] = 0; swarmParam["fluxCharacEnergyError"] = 0;
-	swarmParam["bulkRedTransvDiffCoeff"] = 0; swarmParam["bulkRedTransvDiffCoeffError"] = 0; swarmParam["bulkRedLongDiffCoeff"] = 0; swarmParam["bulkRedLongDiffCoeffError"] = 0;
-	swarmParam["bulkRedMobCoeff"] = 0; swarmParam["bulkRedMobCoeffError"] = 0;
-	swarmParam["bulkRedTownsendCoeff"] = 0; swarmParam["bulkRedTownsendCoeffError"] = 0;
-	swarmParam["bulkRedAttCoeff"] = 0; swarmParam["bulkRedAttCoeffError"] = 0;
-	swarmParam["bulkCharacEnergy"] = 0; swarmParam["bulkCharacEnergyError"] = 0;
-	swarmParam["meanEnergy"] = 0; swarmParam["meanEnergyError"] = 0;
-	swarmParam["Te"] = 0; swarmParam["TeError"] = 0;
-	swarmParam["totalIonRateCoeff"] = 0; swarmParam["totalAttRateCoeff"] = 0;
+	// create the rotation matrix to put the parameters in a frame where the E-field is along z (rotation in turn of y, https://en.wikipedia.org/wiki/Rotation_matrix)
+	double rotAngle = -elecFieldAngle/180.0*M_PI;
+	Eigen::Matrix3d rotationMatrix;
+	rotationMatrix<<std::cos(rotAngle), 0, std::sin(rotAngle),
+					0, 1, 0,
+					-std::sin(rotAngle), 0, std::cos(rotAngle);	
+	Eigen::Matrix3d absRotationMatrix = rotationMatrix.array().abs(); // for the maximization of error of rotated quantities
 
-	// ----- evaluate flux parameters ----- // 
+	// ----- evaluate flux parameters ----- // 	
 
-	// reduced diffusion coeffients
-	swarmParam["fluxRedTransvDiffCoeff"] = totalGasDensity * (averagedFluxDiffusionCoeffs[0] + averagedFluxDiffusionCoeffs[4])/2.0;
-	swarmParam["fluxRedTransvDiffCoeffError"] = totalGasDensity * (averagedFluxDiffusionCoeffsError[0] + averagedFluxDiffusionCoeffsError[4])/2.0;
-	swarmParam["fluxRedLongDiffCoeff"] = totalGasDensity * averagedFluxDiffusionCoeffs[8];
-	swarmParam["fluxRedLongDiffCoeffError"] = totalGasDensity * averagedFluxDiffusionCoeffsError[8];
+	// rotate the drift velocity
+	rotatedAveragedFluxDriftVelocity = rotationMatrix*averagedFluxDriftVelocity.matrix();
+	rotatedAveragedFluxDriftVelocityError = absRotationMatrix*averagedFluxDriftVelocityError.matrix(); // maximization of the error
 
+	// rotate the diffusion matrix		
+	rotatedAveragedFluxDiffusionCoeffs = rotationMatrix*averagedFluxDiffusionCoeffs*rotationMatrix.transpose();	
+	rotatedAveragedFluxDiffusionCoeffsError = absRotationMatrix*averagedFluxDiffusionCoeffsError*absRotationMatrix.transpose(); // maximization of the error
+
+	// reduced transverse and longitudinal diffusion coeffients (relative to E-field)
+	swarmParam["fluxRedTransvDiffCoeff"] = totalGasDensity * (rotatedAveragedFluxDiffusionCoeffs(0,0) + rotatedAveragedFluxDiffusionCoeffs(1,1))/2.0;
+	swarmParam["fluxRedTransvDiffCoeffError"] = totalGasDensity * (rotatedAveragedFluxDiffusionCoeffsError(0,0) + rotatedAveragedFluxDiffusionCoeffsError(1,1))/2.0;
+	swarmParam["fluxRedLongDiffCoeff"] = totalGasDensity * rotatedAveragedFluxDiffusionCoeffs(2,2);
+	swarmParam["fluxRedLongDiffCoeffError"] = totalGasDensity * rotatedAveragedFluxDiffusionCoeffsError(2,2);
 
 	// total ionization and attachment rate-coefficients
+	swarmParam["totalIonRateCoeff"] = 0;
+	swarmParam["totalAttRateCoeff"] = 0;
 	for (auto& gas: gasArray){
 		for (auto& collision: gas->collisionArray){
 			if (collision->type == "Ionization"){
@@ -1390,42 +2097,74 @@ void BoltzmannMC::evaluateSwarmParameters(){
 		}
 	}
 
-	// reduced mobility
-	double absFluxVz = std::abs(averagedFluxDriftVelocity[2]);
-	swarmParam["fluxRedMobCoeff"] = absFluxVz/reducedElecFieldSI;
-	swarmParam["fluxRedMobCoeffError"] = absFluxVz/reducedElecFieldSI;
-	
+	if (excitationFrequency == 0){
+		// reduced mobility
+		double fluxVelocAlongEfield = std::abs(rotatedAveragedFluxDriftVelocity[2]);
+		swarmParam["fluxRedMobCoeff"] = fluxVelocAlongEfield/reducedElecFieldSI;
+		swarmParam["fluxRedMobCoeffError"] = std::abs(rotatedAveragedFluxDriftVelocityError[2])/reducedElecFieldSI;
 
-	// reduced Townsend coefficient and reduced attachment coefficient
-	swarmParam["fluxRedTownsendCoeff"] = swarmParam["totalIonRateCoeff"]/absFluxVz;
-	swarmParam["fluxRedAttCoeff"] = swarmParam["totalAttRateCoeff"]/absFluxVz;
+		// reduced Townsend coefficient and reduced attachment coefficient
+		swarmParam["fluxRedTownsendCoeff"] = swarmParam["totalIonRateCoeff"]/fluxVelocAlongEfield;
+		swarmParam["fluxRedAttCoeff"] = swarmParam["totalAttRateCoeff"]/fluxVelocAlongEfield;
 
-	// characteristic energy
-	swarmParam["fluxCharacEnergy"] = swarmParam["fluxRedTransvDiffCoeff"] / swarmParam["fluxRedMobCoeff"];
-	swarmParam["fluxCharacEnergyError"] = swarmParam["fluxRedTransvDiffCoeffError"]/swarmParam["fluxRedMobCoeff"] +
-										  swarmParam["fluxRedMobCoeffError"]*swarmParam["fluxRedTransvDiffCoeff"]/std::pow(swarmParam["fluxRedMobCoeff"], 2);
+		// characteristic energy
+		swarmParam["fluxCharacEnergy"] = swarmParam["fluxRedTransvDiffCoeff"] / swarmParam["fluxRedMobCoeff"];
+		swarmParam["fluxCharacEnergyError"] = swarmParam["fluxRedTransvDiffCoeffError"]/swarmParam["fluxRedMobCoeff"] +
+											swarmParam["fluxRedMobCoeffError"]*swarmParam["fluxRedTransvDiffCoeff"]/std::pow(swarmParam["fluxRedMobCoeff"], 2);
+	}
 
 	// ----- evaluate bulk parameters ----- // 
 
-	// reduced diffusion coeffients
-	swarmParam["bulkRedTransvDiffCoeff"] = totalGasDensity * (averagedBulkDiffusionCoeffs[0] + averagedBulkDiffusionCoeffs[4])/2.0;
-	swarmParam["bulkRedTransvDiffCoeffError"] = totalGasDensity * (averagedBulkDiffusionCoeffsError[0] + averagedBulkDiffusionCoeffsError[4])/2.0;
-	swarmParam["bulkRedLongDiffCoeff"] = totalGasDensity * averagedBulkDiffusionCoeffs[8];
-	swarmParam["bulkRedLongDiffCoeffError"] = totalGasDensity * averagedBulkDiffusionCoeffsError[8];
+	// rotate the drift velocity
+	rotatedAveragedBulkDriftVelocity = rotationMatrix*averagedBulkDriftVelocity.matrix();
+	rotatedAveragedBulkDriftVelocityError = absRotationMatrix*averagedBulkDriftVelocityError.matrix(); // maximization of the error
 
-	// reduced mobility
-	double absBulkVz = std::abs(averagedBulkDriftVelocity[2]);
-	swarmParam["bulkRedMobCoeff"] = absBulkVz/reducedElecFieldSI;
-	swarmParam["bulkRedMobCoeffError"] = absBulkVz/reducedElecFieldSI;
+	// rotate the diffusion matrix		
+	rotatedAveragedBulkDiffusionCoeffs = rotationMatrix*averagedBulkDiffusionCoeffs*rotationMatrix.transpose();	
+	rotatedAveragedBulkDiffusionCoeffsError = absRotationMatrix*averagedBulkDiffusionCoeffsError*absRotationMatrix.transpose(); // maximization of the error
 
-	// reduced Townsend coefficient and reduced attachment coefficient
-	swarmParam["bulkRedTownsendCoeff"] = swarmParam["totalIonRateCoeff"]/absBulkVz;
-	swarmParam["bulkRedAttCoeff"] = swarmParam["totalAttRateCoeff"]/absBulkVz;
+	// reduced transverse and longitudinal diffusion coeffients (relative to E-field)
+	swarmParam["bulkRedTransvDiffCoeff"] = totalGasDensity * (rotatedAveragedBulkDiffusionCoeffs(0,0) + rotatedAveragedBulkDiffusionCoeffs(1,1))/2.0;
+	swarmParam["bulkRedTransvDiffCoeffError"] = totalGasDensity * (rotatedAveragedBulkDiffusionCoeffsError(0,0) + rotatedAveragedBulkDiffusionCoeffsError(1,1))/2.0;
+	swarmParam["bulkRedLongDiffCoeff"] = totalGasDensity * rotatedAveragedBulkDiffusionCoeffs(2,2);
+	swarmParam["bulkRedLongDiffCoeffError"] = totalGasDensity * rotatedAveragedBulkDiffusionCoeffsError(2,2);
 
-	// characteristic energy
-	swarmParam["bulkCharacEnergy"] = swarmParam["bulkRedTransvDiffCoeff"] / swarmParam["bulkRedMobCoeff"];
-	swarmParam["bulkCharacEnergyError"] = swarmParam["bulkRedTransvDiffCoeffError"]/swarmParam["bulkRedMobCoeff"] +
-										  swarmParam["bulkRedMobCoeffError"]*swarmParam["bulkRedTransvDiffCoeff"]/std::pow(swarmParam["bulkRedMobCoeff"], 2);
+	// total ionization and attachment rate-coefficients
+	swarmParam["totalIonRateCoeff"] = 0;
+	swarmParam["totalAttRateCoeff"] = 0;
+	for (auto& gas: gasArray){
+		for (auto& collision: gas->collisionArray){
+			if (collision->type == "Ionization"){
+				swarmParam["totalIonRateCoeff"] += collision->target->density * collision->ineRateCoeff;
+			}
+			else if (collision->type == "Attachment"){
+				swarmParam["totalAttRateCoeff"] += collision->target->density * collision->ineRateCoeff;
+			}
+		}
+	}
+
+	if (excitationFrequency == 0){
+		// reduced mobility
+		double bulkVelocAlongEField = std::abs(rotatedAveragedBulkDriftVelocity[2]);
+		swarmParam["bulkRedMobCoeff"] = bulkVelocAlongEField/reducedElecFieldSI;
+		swarmParam["bulkRedMobCoeffError"] = std::abs(rotatedAveragedBulkDriftVelocityError[2])/reducedElecFieldSI;
+
+		// reduced Townsend coefficient and reduced attachment coefficient
+		swarmParam["bulkRedTownsendCoeff"] = swarmParam["totalIonRateCoeff"]/bulkVelocAlongEField;
+		swarmParam["bulkRedAttCoeff"] = swarmParam["totalAttRateCoeff"]/bulkVelocAlongEField;
+
+		// characteristic energy
+		swarmParam["bulkCharacEnergy"] = swarmParam["bulkRedTransvDiffCoeff"] / swarmParam["bulkRedMobCoeff"];
+		swarmParam["bulkCharacEnergyError"] = swarmParam["bulkRedTransvDiffCoeffError"]/swarmParam["bulkRedMobCoeff"] +
+											swarmParam["bulkRedMobCoeffError"]*swarmParam["bulkRedTransvDiffCoeff"]/std::pow(swarmParam["bulkRedMobCoeff"], 2);
+
+		// ----- evaluate effective SST parameters ---- //
+
+		// effective SST townsend ionization coefficient
+		swarmParam["effSSTAverageVelocity"] = 0.5*bulkVelocAlongEField + std::sqrt(0.25*bulkVelocAlongEField*bulkVelocAlongEField - totalGasDensity*rotatedAveragedBulkDiffusionCoeffs(2,2)*(swarmParam["totalIonRateCoeff"]-swarmParam["totalAttRateCoeff"]));
+		swarmParam["effSSTRedTownsendCoeff"] = swarmParam["totalIonRateCoeff"]/swarmParam["effSSTAverageVelocity"];
+		swarmParam["effSSTRedAttCoeff"] = swarmParam["totalAttRateCoeff"]/swarmParam["effSSTAverageVelocity"];
+	}
 
 	// ----- evaluate energy parameters ----- //
 
@@ -1447,55 +2186,103 @@ void BoltzmannMC::evaluateSwarmParameters(){
 	int Nnodes = energyNode.size();
 	int Ncells = energyCell.size();
 
-	// evaluate total cross section, which is necessary to the calculations
-	totalCrossSection = Eigen::ArrayXd::Zero(Nnodes);
+	// evaluate total cross sections, which are necessary for the calculations
+	totalMomTransfCrossSection = Eigen::ArrayXd::Zero(Nnodes);
+	Eigen::ArrayXd totalEnergyRelaxCrossSection = Eigen::ArrayXd::Zero(Nnodes);
+	Eigen::ArrayXd totalEnergyRelaxCrossSectionClassic = Eigen::ArrayXd::Zero(Nnodes);
 	for (auto& gas: gasArray){
 		if (gas->collisionArray.empty()){
 			continue;
 		}
+		// evaluation of the mass ratio
+		double massRatio = Constant::electronMass/gas->mass;		
 		// loop over each collision with the gas
 		for (auto& collision: gas->collisionArray){
 			// avoid effective collisions
 			if (collision->type == "Effective"){
 				continue;
 			}
-			// add collision cross section to the total momentum transfer cross section (also superelastic)
-			totalCrossSection += collision->crossSection * collision->target->density;
+			// add collision cross section to the total cross section (also superelastic)
+			totalMomTransfCrossSection += collision->momTransfCrossSection * collision->target->density;
+			if (collision->type == "Elastic"){
+				totalEnergyRelaxCrossSection += 2.0*massRatio*collision->integralCrossSection * collision->target->density;
+			}
+			else{
+				Eigen::ArrayXd weightedICS = collision->integralCrossSection * collision->target->density;
+				Eigen::ArrayXd aux = weightedICS * collision->threshold / energyNode;
+				aux[0] = 0;
+				totalEnergyRelaxCrossSection += aux;
+				totalEnergyRelaxCrossSectionClassic += weightedICS;
+			}
 			if (collision->isReverse){
-				totalCrossSection += collision->superElasticCrossSection(Eigen::ArrayXd(0)) * collision->productArray[0]->density;
+				EedfState* prod = collision->productArray[0];
+				Eigen::ArrayXd weightedICS = collision->superElasticCrossSection("integral", Eigen::ArrayXd(0)) * prod->density;
+				Eigen::ArrayXd aux =  weightedICS * collision->threshold / energyNode;
+				aux[0] = 0;				
+				totalMomTransfCrossSection += collision->superElasticCrossSection("momTransf", Eigen::ArrayXd(0)) * prod->density;				
+				totalEnergyRelaxCrossSection += aux;
+				totalEnergyRelaxCrossSectionClassic += weightedICS;
 			}
 		}
 	}
+
+	// momentum-transfer frequency (excluding the growth contribution)
+	Eigen::ArrayXd cellMTCS = (totalMomTransfCrossSection.segment(1,Ncells) + totalMomTransfCrossSection.segment(0,Ncells))*0.5;
+	swarmParam["momTransfFreq"] = totalGasDensity*3.0*factor*energyStep * (eedf * energyCell * cellMTCS).sum();
+
+	// energy-relaxation frequency (excluding the growth contribution)
+	Eigen::ArrayXd cellERCS = (totalEnergyRelaxCrossSection.segment(1,Ncells) + totalEnergyRelaxCrossSection.segment(0,Ncells))*0.5;
+	swarmParam["energyRelaxFreq"] = totalGasDensity*3.0*factor*energyStep * (eedf * energyCell * cellERCS).sum();
+
+	// classical formula for energy-relaxation frequency (excluding the growth contribution)
+	Eigen::ArrayXd cellERCSClassic = (totalEnergyRelaxCrossSectionClassic.segment(1,Ncells) + totalEnergyRelaxCrossSectionClassic.segment(0,Ncells))*0.5;
+	swarmParam["energyRelaxFreqClassic"] = totalGasDensity*3.0*factor*energyStep * (eedf * energyCell * cellERCSClassic).sum();		
+	
 	// add the growth contribution
-	Eigen::ArrayXd totalCrossSectionAux = totalCrossSection;
-	totalCrossSectionAux.segment(1,Nnodes-1) += 1.0/(3.0*factor*Eigen::sqrt(energyNode.segment(1,Nnodes-1)))*(swarmParam["totalIonRateCoeff"]-swarmParam["totalAttRateCoeff"]);
+	Eigen::ArrayXd totalMTCrossSectionAux = totalMomTransfCrossSection;
+	totalMTCrossSectionAux.segment(1,Nnodes-1) += 1.0/(3.0*factor*Eigen::sqrt(energyNode.segment(1,Nnodes-1)))*(swarmParam["totalIonRateCoeff"]-swarmParam["totalAttRateCoeff"]);
 	// convert to frequency
-	Eigen::ArrayXd totalFrequencyAux = totalGasDensity*totalCrossSectionAux*3.0*factor*Eigen::sqrt(energyNode);
+	Eigen::ArrayXd totalMTFrequencyAux = totalGasDensity*totalMTCrossSectionAux*3.0*factor*Eigen::sqrt(energyNode);
 
 	// reduced energy diffusion 
-	swarmParam["redDiffCoeffEnergy_eedf"] = 2.0*factor*energyStep*(energyCell.square()*eedf/(totalCrossSectionAux.segment(0,Nnodes-1)+totalCrossSectionAux.segment(1,Nnodes-1))).sum();
+	swarmParam["redDiffCoeffEnergy_eedf"] = 2.0*factor*energyStep*(energyCell.square()*eedf/(totalMTCrossSectionAux.segment(0,Nnodes-1)+totalMTCrossSectionAux.segment(1,Nnodes-1))).sum();
 
 	// reduced energy mobility 
-	swarmParam["redMobCoeffEnergy_eedf"] = -factor*(energyNode.segment(1,Nnodes-2).square()*(eedf.segment(1,Nnodes-2)-eedf.segment(0,Nnodes-2))/totalCrossSectionAux.segment(1,Nnodes-2)).sum();
+	swarmParam["redMobCoeffEnergy_eedf"] = -factor*(energyNode.segment(1,Nnodes-2).square()*(eedf.segment(1,Nnodes-2)-eedf.segment(0,Nnodes-2))/totalMTCrossSectionAux.segment(1,Nnodes-2)).sum();
 
 	// reduced diffusion
-	swarmParam["redDiffCoeff_eedf"] = 2.0*factor*energyStep*(energyCell*eedf/(totalCrossSectionAux.segment(0,Nnodes-1)+totalCrossSectionAux.segment(1,Nnodes-1))).sum();
+	swarmParam["redDiffCoeff_eedf"] = 2.0*factor*energyStep*(energyCell*eedf/(totalMTCrossSectionAux.segment(0,Nnodes-1)+totalMTCrossSectionAux.segment(1,Nnodes-1))).sum();
 
-	// reduced mobility
-	swarmParam["redMobCoeff_DC_eedf"] = -factor*(energyNode.segment(1,Nnodes-2)*(eedf.segment(1,Nnodes-2)-eedf.segment(0,Nnodes-2))/totalCrossSectionAux.segment(1,Nnodes-2)).sum();
+	// DC non-magnetized reduced mobility
+	swarmParam["redMobCoeff_DC_eedf"] = -factor*(energyNode.segment(1,Nnodes-2)*(eedf.segment(1,Nnodes-2)-eedf.segment(0,Nnodes-2))/totalMTCrossSectionAux.segment(1,Nnodes-2)).sum();
 
 	// characteristic energy
 	swarmParam["characEnergy_eedf"] = swarmParam["redDiffCoeff_eedf"]/swarmParam["redMobCoeff_DC_eedf"];
+
+	// reduced mobility matrix
+	Eigen::ArrayXd aux1 = -2.0/3.0*Constant::electronCharge/Constant::electronMass*Eigen::pow(energyNode.segment(1,Nnodes-2),1.5)*((eedf.segment(1,Nnodes-2)-eedf.segment(0,Nnodes-2)));
+	Eigen::ArrayXd totalMTFrequencyAuxSegm = totalMTFrequencyAux.segment(1,Nnodes-2);
+	Eigen::ArrayXd aux2 = (totalMTFrequencyAuxSegm.square() + std::pow(excitationFrequencyRadians-cyclotronFrequency, 2))*(totalMTFrequencyAuxSegm.square() + std::pow(excitationFrequencyRadians+cyclotronFrequency, 2));
+	Eigen::ArrayXd aux3 = totalMTFrequencyAuxSegm.square()+excitationFrequencyRadians*excitationFrequencyRadians;
+
+	swarmParam["redMobCoeff_xx_real_eedf"] = totalGasDensity*(totalMTFrequencyAuxSegm*(totalMTFrequencyAuxSegm.square()+excitationFrequencyRadians*excitationFrequencyRadians+cyclotronFrequency*cyclotronFrequency)/aux2*aux1).sum();
+	swarmParam["redMobCoeff_xx_imag_eedf"] = -totalGasDensity*(excitationFrequencyRadians*(totalMTFrequencyAuxSegm.square()+excitationFrequencyRadians*excitationFrequencyRadians-cyclotronFrequency*cyclotronFrequency)/aux2*aux1).sum();
+	swarmParam["redMobCoeff_xy_real_eedf"] = -totalGasDensity*cyclotronFrequency*((totalMTFrequencyAuxSegm.square()-excitationFrequencyRadians*excitationFrequencyRadians+cyclotronFrequency*cyclotronFrequency)/aux2*aux1).sum();
+	swarmParam["redMobCoeff_xy_imag_eedf"] = totalGasDensity*2.0*excitationFrequencyRadians*cyclotronFrequency*(totalMTFrequencyAuxSegm/aux2*aux1).sum();
+	swarmParam["redMobCoeff_zz_real_eedf"] = totalGasDensity*(totalMTFrequencyAuxSegm/aux3*aux1).sum();
+	swarmParam["redMobCoeff_zz_imag_eedf"] = -totalGasDensity*(excitationFrequencyRadians/aux3*aux1).sum();
 }
 
 void BoltzmannMC::evaluateRateCoeff(){
 	// clear rate coeff vectors
 	rateCoeffAll.clear();
 	rateCoeffExtra.clear();
+	rateCoeffAll_periodic.clear();
+	rateCoeffExtra_periodic.clear();
 
 	// evaluate rate coefficients for all MC processes
 	for (int i = 0; i < nProcesses; ++i){
-		RateCoeffStruct  auxRateCoeff;
+		GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
 		// if it is inelastic
 		if (!isSuperElastic[i]){
 			// get the correspondent 'Collision' object
@@ -1524,7 +2311,7 @@ void BoltzmannMC::evaluateRateCoeff(){
 	// evaluate rate coefficients of effective collisions, if they exist.
 	// evaluate rate coefficients for all 'extra' 'Collision' objects
 	for (auto& gas: gasArray){
-		RateCoeffStruct  auxRateCoeff;
+		GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
 		for (auto& collision: gas->collisionArray){
 			if (collision->type == "Effective"){
 				auxRateCoeff.collID = collision->ID;
@@ -1542,6 +2329,64 @@ void BoltzmannMC::evaluateRateCoeff(){
 			auxRateCoeff.supRate = collision->supRateCoeff;
 			auxRateCoeff.collDescription = collision->description();
 			rateCoeffExtra.push_back(auxRateCoeff);
+		}
+	}
+
+	// evaluate rate-coefficients for along the different phases of the period
+	if (excitationFrequencyRadians != 0){
+		for (int phaseIdx = 0; phaseIdx < nIntegrationPhases; ++phaseIdx){
+			std::vector<GeneralDefinitions::RateCoeffStruct> rateCoeffAll_onePhase;
+			std::vector<GeneralDefinitions::RateCoeffStruct> rateCoeffExtra_onePhase;
+			Eigen::ArrayXd eedf_onePhase = eedf_periodic.row(phaseIdx);			
+			// evaluate rate coefficients for all MC processes
+			for (int i = 0; i < nProcesses; ++i){
+				GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
+				// if it is inelastic
+				if (!isSuperElastic[i]){
+					// get the correspondent 'Collision' object
+					Collision* realCollision = realCollisionPointers[i];
+					// save the ID of the 'Collision' object
+					auxRateCoeff.collID = realCollision->ID;
+					// save the typical rate coefficients, from the convolution of the eedf with the cross section
+					realCollision->evaluateRateCoeff(eedf_onePhase);
+					auxRateCoeff.ineRate = realCollision->ineRateCoeff;
+					auxRateCoeff.supRate = realCollision->supRateCoeff;
+					// check if the 'Collision' object has a superelastic
+					if (auxRateCoeff.supRate != Constant::NON_DEF){
+						// increment i, since the corresponding MC process is immediately after
+						++i;			
+					}
+					// save the collision description
+					auxRateCoeff.collDescription = realCollision->description();
+				}
+				rateCoeffAll_onePhase.push_back(auxRateCoeff);
+			}
+
+			// evaluate rate coefficients of effective collisions, if they exist.
+			// evaluate rate coefficients for all 'extra' 'Collision' objects
+			for (auto& gas: gasArray){
+				GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
+				for (auto& collision: gas->collisionArray){
+					if (collision->type == "Effective"){
+						auxRateCoeff.collID = collision->ID;
+						collision->evaluateRateCoeff(eedf_onePhase);
+						auxRateCoeff.ineRate = collision->ineRateCoeff;
+						auxRateCoeff.supRate = collision->supRateCoeff;
+						auxRateCoeff.collDescription = collision->description();
+						rateCoeffAll_onePhase.push_back(auxRateCoeff);				
+					}
+				}
+				for (auto& collision: gas->collisionArrayExtra){
+					auxRateCoeff.collID = collision->ID;
+					collision->evaluateRateCoeff(eedf_onePhase);
+					auxRateCoeff.ineRate = collision->ineRateCoeff;
+					auxRateCoeff.supRate = collision->supRateCoeff;
+					auxRateCoeff.collDescription = collision->description();
+					rateCoeffExtra_onePhase.push_back(auxRateCoeff);
+				}
+			}
+			rateCoeffAll_periodic.push_back(rateCoeffAll_onePhase);
+			rateCoeffExtra_periodic.push_back(rateCoeffExtra_onePhase);		
 		}
 	}		
 }

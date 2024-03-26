@@ -51,6 +51,13 @@ double MathFunctions::unitNormalRand(){
 	return unitNormalDist(generator);
 }
 
+Eigen::Array3d MathFunctions::unitNormalRand3(){
+	// 'unitNormalRand3' generates 3 random numbers according with a normal distribution with mean value 0 and width 1
+	double r1 = unitUniformRand(false, true), r2 = unitUniformRand(false, true), r3 = unitUniformRand(false, true), r4 = unitUniformRand(false, true);
+	double aux1 = std::sqrt(-2.0*std::log(r1)), aux2 = 2.0*M_PI*r2;
+	return Eigen::Array3d(aux1*std::cos(aux2), aux1*std::sin(aux2), std::sqrt(-2.0*std::log(r3))*std::cos(2.0*M_PI*r4) );
+}
+
 Eigen::ArrayXd MathFunctions::histogramCount(Eigen::ArrayXd &arrayToCount, Eigen::ArrayXd &referenceGrid){
 	// 'histogramCount' returns a cell histogram, given the nodes of the reference grid and the array elements to be counted
   	//
@@ -119,20 +126,43 @@ Eigen::ArrayXXd MathFunctions::histogram2DCount(Eigen::ArrayXd arrayToCountX, Ei
 	return matrixWithCounts;
 }
 
-Eigen::Array3d MathFunctions::eulerTransformation(double chi, double eta, double theta, double phi){
+Eigen::Array3d MathFunctions::eulerTransformation(double sinChi, double cosChi, double sinEta, double cosEta, double sinTheta, double cosTheta, double sinPhi, double cosPhi){
 	// according with Yousfi 1994	
 	Eigen::Array3d versorInLab;
-	double sinChi = std::sin(chi), cosChi = std::cos(chi), sinEta = std::sin(eta), cosEta = std::cos(eta), 
-	       sinTheta = std::sin(theta), cosTheta = std::cos(theta), sinPhi = std::sin(phi), cosPhi = std::cos(phi);
+
+	double sinChiSinEta = sinChi*sinEta;
+	double aux =  sinChi*cosEta*cosTheta + cosChi*sinTheta;
 	
-	versorInLab[0] = -sinChi*sinEta*sinPhi + sinChi*cosEta*cosTheta*cosPhi + cosChi*sinTheta*cosPhi;
-	versorInLab[1] = sinChi*sinEta*cosPhi + sinChi*cosEta*cosTheta*sinPhi + cosChi*sinTheta*sinPhi;
+	versorInLab[0] = -sinChiSinEta*sinPhi + aux*cosPhi;
+	versorInLab[1] = sinChiSinEta*cosPhi  + aux*sinPhi;
 	versorInLab[2] = -sinChi*cosEta*sinTheta + cosChi*cosTheta;
 
 	return versorInLab;
 }
 
-void MathFunctions::cart2sph(Eigen::Array3d &cartesianArray, double &norm, double &polarAngle, double &azimutalAngle){
+void MathFunctions::cart2sph(Eigen::Array3d &cartesianArray, double &norm, double &sinPolarAngle, double &cosPolarAngle, double &sinAzimutalAngle, double &cosAzimutalAngle){
+	// 'cart2sph' calculates the spherical coordinates of an array
+	// polarAngle: [0,pi]; azimutal angle ]0,2pi]
+	double x = cartesianArray[0], y = cartesianArray[1], z = cartesianArray[2];
+	double x2My2 = x*x+y*y;
+	double norm_xy = std::sqrt(x2My2);
+	norm = std::sqrt(x2My2 + z*z);
+	if (norm == 0){
+		Message::error("Trying to use the function 'cart2sph' for a vector with null norm!");
+	}
+	sinPolarAngle = norm_xy/norm;
+	cosPolarAngle = z/norm;
+	if (norm_xy != 0){
+		sinAzimutalAngle = y/norm_xy;
+		cosAzimutalAngle = x/norm_xy;
+	}
+	else{ // not relevant, only to avoid "nan" when x=y=0
+		sinAzimutalAngle = 1;
+		cosAzimutalAngle = 0;		
+	}	
+}
+
+/*void MathFunctions::cart2sph(Eigen::Array3d &cartesianArray, double &norm, double &polarAngle, double &azimutalAngle){
 	// 'cart2sph' calculates the spherical coordinates of an array
 	// polarAngle: [0,pi]; azimutal angle [0,2pi]
 	double x = cartesianArray[0], y = cartesianArray[1], z = cartesianArray[2];
@@ -146,7 +176,7 @@ void MathFunctions::cart2sph(Eigen::Array3d &cartesianArray, double &norm, doubl
 		azimutalAngle += 2.0*M_PI;
 	} 
 	polarAngle = std::acos(z/norm);
-}
+}*/
 
 Eigen::ArrayXd MathFunctions::standardDeviationColwise(Eigen::ArrayXXd matrix){
 	int colSize = matrix.cols();

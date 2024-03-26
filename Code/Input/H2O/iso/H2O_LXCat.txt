@@ -1,0 +1,747 @@
+LXCat, www.lxcat.net
+Generated on 2 Jun 2023. All rights reserved.
+
+RECOMMENDED REFERENCE FORMAT
+- IST-Lisbon database, www.lxcat.net, retrieved on September 23, 2022.
+Be aware that some databases and solvers can additionally have instructions how to reference corresponding data.
+Please check below in the headers of databases.
+
+CROSS SECTION DATA FORMAT
+In downloaded files, each collision process is defined by a block consisting of
+1st line
+Keyword in capitals indicating the type of the collision. Possible collision types are elastic, effective, excitation,
+ionization, or attachment (capital letters required, key words are case sensitive), where "elastic" is used to denote
+the elastic momentum transfer cross section and where "effective" denotes the total momentum transfer cross section (sum
+of elastic momentum transfer and total inelastic cross sections).  The latter is useful for solving the Boltzmann
+equation in the 2-term approximation.
+2nd line
+Name of the target particle species. This name is a character string, freely chosen by the user, e.g. "Ar". Optionally
+for excitation processes, the name of the corresponding excited state can be specified on the same line, separated from
+the first name either by arrow "->" (dash + greater than) or by double-head arrow "<->" (less than + dash +
+greater than), e.g. "Ar -> Ar*" and "Ar <-> Ar*", respectively. In the later case BOLSIG+ will automatically
+define the inverse superelastic process, constructing the superelastic cross-section by detailed balancing, and
+considering the indicated excited state as the target. In this case, the ratio of statistical weights must be input in
+the 3rd line (see below).
+3rd line
+For elastic and effective collisions, the ratio of the electron mass to the target particle mass. For excitation or
+ionization collisions, the electron energy loss (nominally the threshold energy) in eV. For attachment, the 3rd line is
+missing. In case of an excitation process where an excited state has been indicated on the 2nd line using double-head
+arrow "<->", the 3rd line must specify also ratio of the statistical weights of the final state to the initial state
+as the second parameter in 3rd line this is needed by BOLSIG+ to calculate the de-excitation cross-section. The
+statistical weight ratio, if given, will also be used by the automatic superelastics option in BOLSIG+. If this ratio is
+not provided then BOLSIG+ will assume it unity.
+from 4th line (optionally)
+User comments and reference information, maximum 100 lines. The only constraint on format is that these comment lines
+must not start with a number.
+Finally
+Table of the cross section as a function of energy. The table starts and ends by a line of dashes "------" (at least 5),
+and has otherwise two numbers per line: the energy in eV and the cross section in m2.
+
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DATABASE:         IST-Lisbon database
+PERMLINK:         www.lxcat.net/IST-Lisbon
+DESCRIPTION:      IST-Lisbon database contains up-to-date electron-neutral scattering cross sections (together with the
+                  measured swarm parameters used to validate these data), resulting from the research effort of the
+                  Group N-Plasmas Reactive: Modelling and Engineering (N-PRiME) with IPFN/IST (Instituto de Plasmas e
+                  Fusao Nuclear / Instituto Superior Tecnico), Lisbon, Portugal.  The data, compiled from the
+                  literature, correspond to contributions from different authors (see detailed references in the
+                  database). For each gas the database presents a COMPLETE SET of cross sections, validated against
+                  measured swarm parameters by solving the two-term homogeneous electron Boltzmann equation. In most
+                  cases, predictions are in agreement with measurements within 1-20%, for reduced electric fields E/N ~
+                  1e-4 - 500 Td. To improve predictions at low E/N, some sets need to be completed with rotational cross
+                  sections, also available in the database.
+CONTACT:          LL Alves and V Guerra
+                  e-mail: llalves@@tecnico.ulisboa.pt
+HOW TO REFERENCE: L.L. Alves, ''The IST-Lisbon database on LXCat'' J. Phys. Conf. Series 2014, 565, 1
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+************************************************************************************************************************
+
+COMMENT: Budde M, Dias T C, Vialetto L, Pinhão N, Guerra V and Silva T, ''Electron-neutral collision cross sections for H2O:
+         I. Complete and consistent set'' 2022 J. Phys. D: Appl. Phys. 55 445205. The set includes 16 cross sections defined
+         up to 2 keV, and it was compiled from the following references: (i) the elastic momentum-transfer cross section is
+         taken from Biagi's Magboltz v11.9 slightly decreased for energies above 5eV (ii) the cross sections for vibrational
+         excitation are taken from Song. Superelastic vibrational deexcitations should be considered as part of the set,
+         adopting a Boltzmann distribution at gas temperature (iii) the cross sections for electron-impact excitation of the
+         electronic states are based on the works by Ralphs and Matsui decreased by 10%. An effective excitation cross
+         section based on Möhlmann and de Heer is included as well (iv) the dissociation cross sections originate from Harb
+         and Kedzierski. The latter being increased by 30%  (v) the dissociative attachment and
+         the total ionization cross sections are the ones obtained from the Triniti database, Biagi's Magboltz v11.9 and the
+         Itikawa database. Note that at this point the cross section for production of doubly ionized O as recommended in
+         the aforementioned publication is not listed here since at the time of release of this set the in-house code LoKI
+         cannot handle double ionization events properly. Due to the large threshold and small magnitude of that cross
+         section, its influence is small. At room temperature even for high E/N, the set must be further completed by including
+         rotational excitation mechanisms (see below), in order to reproduce measured swarm data.
+         IMPORTANT NOTICE ABOUT ROTATIONAL TRANSITIONS
+         This set is to be completed with the rotational cross sections for transitions H2O(X,v=000,JK'K'') --> H2O(X,v=000,jk'k''),
+         available in this database under group H2O-rot (see H2O-rot description for more details). 
+         When the full cross section set for H2O (containing momentum-transfer, electronic and vibrational excitations, ionization
+         and attachment from ground-state) and H2O-rot (including the rotational excitation / deexcitation) are used in a 
+         two-term Boltzmann solver they yield swarm parameters that agree with measurements at room temperature (depending on
+         the parameters and E/N regions), over a large range of E/N values (1e-3 to 700 Td).
+********************************************************** H2O *********************************************************
+
+ELASTIC
+H2O
+3.043000e-5
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + H2O, Elastic
+PARAM.:  m/M = 0.00003043, complete set
+COMMENT: [e + H2O(X)-> e + H2O(X), Elastic]
+COMMENT: From Biagi's Magboltz v11.9 
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+0.0001	3.80E-16
+0.001	3.59E-16
+0.002	1.74E-16
+0.003	1.12E-16
+0.004	8.22E-17
+0.005	6.39E-17
+0.006	5.42E-17
+0.007	4.36E-17
+0.008	3.71E-17
+0.009	3.24E-17
+0.01	2.84E-17
+0.02	1.15E-17
+0.03	6.71E-18
+0.04	4.65E-18
+0.05	3.53E-18
+0.06	2.87E-18
+0.07	2.24E-18
+0.08	1.78E-18
+0.09	1.46E-18
+0.1	1.25E-18
+0.15	7.06E-19
+0.2	4.52E-19
+0.25	3.10E-19
+0.3	2.20E-19
+0.4	1.28E-19
+0.5	8.30E-20
+0.6	6.00E-20
+0.7	3.80E-20
+0.8	2.70E-20
+0.9	2.00E-20
+1	1.50E-20
+1.3	8.50E-21
+1.5	8.50E-21
+2	1.02E-20
+2.5	1.45E-20
+3	1.95E-20
+4	2.80E-20
+5	3.60E-20
+6	4.20E-20
+7	4.40E-20
+8	4.80E-20
+9	5.10E-20
+10	5.30E-20
+12	5.50E-20
+15	5.30E-20
+20	4.70E-20
+25	4.10E-20
+30	3.55E-20
+40	2.90E-20
+60	2.00E-20
+80	1.55E-20
+100	1.20E-20
+125	9.50E-21
+150	7.80E-21
+175	6.50E-21
+200	5.50E-21
+250	4.00E-21
+300	3.00E-21
+400	1.90E-21
+500	1.30E-21
+600	1.00E-21
+700	7.50E-22
+800	6.00E-22
+900	5.00E-22
+1000	4.00E-22
+1250	2.60E-22
+1500	1.80E-22
+1750	1.30E-22
+2000	1.00E-22
+-----------------------------
+
+ATTACHMENT
+H2O -> H(X) + OH(-,X)
+5.90
+SPECIES: e / H2O
+PROCESS: E + H2O -> H(X) + OH(-,X), Attachment
+PARAM.:  E = 5.90 eV,complete set
+COMMENT: [e + H2O(X) -> H(X) + OH(-,X), Attachment]
+COMMENT: From Biagi's Magboltz v11.9
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+5.90E+00	0.000E-26
+6.00E+00	3.000E-26
+6.25E+00	7.000E-26
+6.50E+00	1.000E-25
+6.75E+00	1.500E-25
+7.00E+00	1.450E-25
+7.25E+00	9.000E-26
+7.50E+00	4.000E-26
+7.75E+00	3.000E-26
+8.00E+00	4.000E-26
+8.25E+00	5.800E-26
+8.50E+00	7.000E-26
+8.75E+00	7.000E-26
+9.00E+00	5.000E-26
+9.25E+00	4.000E-26
+9.50E+00	2.500E-26
+9.75E+00	1.000E-26
+1.00E+01	1.000E-26
+1.03E+01	3.000E-26
+1.05E+01	4.500E-26
+1.08E+01	5.800E-26
+1.10E+01	7.200E-26
+1.13E+01	8.000E-26
+1.15E+01	8.000E-26
+1.18E+01	7.500E-26
+1.20E+01	6.500E-26
+1.23E+01	5.000E-26
+1.25E+01	4.200E-26
+1.28E+01	2.500E-26
+-----------------------------
+
+ATTACHMENT
+H2O -> H2 + O(-)
+4.9
+SPECIES: e / H2O
+PROCESS: E + H2O -> H2 + O(-), Attachment
+PARAM.:  E = 4.9 eV
+COMMENT: [e + H2O(X) -> H2(X) + O(-,X), Attachment]
+COMMENT: Dis.attM.Yousfi et al.Cent.de Phys.Atom.de Toulouse Univ.diPadova1987.
+COMMENT: From Triniti Database on LXCat
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 4.900000e+0	0.000000e+0
+ 5.010000e+0	1.474000e-24
+ 5.610000e+0	3.683000e-24
+ 5.700000e+0	4.914000e-24
+ 6.000000e+0	5.400000e-24
+ 6.170000e+0	7.344000e-24
+ 6.860000e+0	2.257000e-23
+ 7.430000e+0	7.830000e-24
+ 7.520000e+0	5.940000e-24
+ 7.780000e+0	5.400000e-24
+ 8.000000e+0	6.372000e-24
+ 8.740000e+0	4.860000e-23
+ 9.000000e+0	5.400000e-23
+ 9.520000e+0	4.417000e-23
+ 9.780000e+0	3.888000e-23
+ 9.870000e+0	3.780000e-23
+ 1.026000e+1	4.169000e-23
+ 1.043000e+1	4.811000e-23
+ 1.087000e+1	7.560000e-23
+ 1.126000e+1	9.234000e-23
+ 1.143000e+1	9.450000e-23
+ 1.170000e+1	9.180000e-23
+ 1.187000e+1	7.938000e-23
+ 1.209000e+1	7.560000e-23
+ 1.326000e+1	2.554000e-23
+ 1.417000e+1	8.370000e-24
+ 1.470000e+1	3.942000e-24
+ 1.500000e+1	2.970000e-24
+ 1.600000e+1	2.430000e-24
+ 1.700000e+1	5.400000e-30
+ 1.000000e+3	5.400000e-30
+-----------------------------
+
+ATTACHMENT
+H2O -> OH + H(-)
+5.7
+SPECIES: e / H2O
+PROCESS: E + H2O -> OH + H(-), Attachment
+PARAM.:  E = 5.7 eV
+COMMENT: [e + H2O(X) -> OH(X) + H(-,X), Attachment]
+COMMENT: Dis.attM.Yousfi et al.Cent.de Phys.Atom.de Toulouse Univ.diPadova1987.
+COMMENT: From Triniti Database on LXCat
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 5.700000e+0	0.000000e+0
+ 5.850000e+0	6.048000e-23
+ 6.000000e+0	1.145000e-22
+ 6.050000e+0	1.755000e-22
+ 6.100000e+0	2.263000e-22
+ 6.200000e+0	2.900000e-22
+ 6.400000e+0	3.672000e-22
+ 6.500000e+0	3.710000e-22
+ 6.650000e+0	3.672000e-22
+ 7.050000e+0	2.160000e-22
+ 7.400000e+0	1.080000e-22
+ 7.700000e+0	6.426000e-23
+ 7.900000e+0	5.940000e-23
+ 8.250000e+0	7.074000e-23
+ 8.800000e+0	5.400000e-23
+ 9.200000e+0	4.050000e-23
+ 9.800000e+0	2.160000e-22
+ 1.050000e+1	1.080000e-22
+ 1.120000e+1	1.404000e-23
+ 1.150000e+1	1.010000e-23
+ 1.175000e+1	9.990000e-24
+ 1.200000e+1	5.400000e-30
+ 1.000000e+3	5.400000e-30
+-----------------------------
+
+EXCITATION
+H2O <-> H2O(v 010)
+1.980000e-1
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + H2O(v 010), Excitation
+PARAM.:  E = 0.198 eV
+COMMENT: [e + H2O(X,v=000) <-> e + H2O(X,v=010), Vibrational]
+COMMENT: From Song et al. 2021 J. Phys. Chem. Ref. Data 50, 023103
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 0.198	0
+ 0.260	2.15e-20
+ 0.500	1.162e-20
+ 1.000	0.441e-20
+ 2.000	0.166e-20
+ 4.000	0.170e-20
+ 5.000	0.193e-20
+ 6.000	0.260e-20
+ 8.000	0.313e-20
+10.000	0.312e-20
+15.000	0.212e-20
+20.000	0.144e-20
+30.000	0.0972e-20
+50.000	0.0458e-20
+100.00	0.0108e-20
+-----------------------------
+
+EXCITATION
+H2O <-> H2O(v 100+001)
+4.530000e-1
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + H2O(v 100+001), Excitation
+PARAM.:  E = 0.453 eV
+COMMENT: [e + H2O(X,v=000) <-> e + H2O(X,v=100+001), Vibrational]
+COMMENT: From Song et al. 2021 J. Phys. Chem. Ref. Data 50, 023103
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 0.453	0
+ 0.530	4.44e-20
+ 0.875	0.81e-20
+ 1.000	0.389e-20
+ 2.000	0.323e-20
+ 4.000	0.428e-20
+ 5.000	0.567e-20
+ 6.000	0.745e-20
+ 8.000	0.799e-20
+10.000	0.643e-20
+15.000	0.226e-20
+20.000	0.0806e-20
+30.000	0.0245e-20
+50.000	0.0159e-20
+100.00	0.006e-20
+-----------------------------
+
+EXCITATION
+H2O -> OH + H
+6.6
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + OH + H, Excitation
+PARAM.:  E = 6.6 eV, complete set
+COMMENT: [e + H2O(X) -> e + OH(X) + H(X), Excitation]
+COMMENT: From Biagi's Magboltz v11.9
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 6.6	0.0
+ 10.0	0.15e-20
+ 15.0	0.48e-20
+ 20.0	0.75e-20
+ 30.0	1.32e-20
+ 50.0	1.90e-20
+ 75.0	2.10e-20
+ 100.0	2.05e-20
+ 150.0	1.98e-20
+ 200.0	1.75e-20
+ 250.0	1.60e-20
+ 300.0	1.40e-20
+-----------------------------
+
+EXCITATION
+H2O -> OH + H
+9.2
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + OH + H, Excitation
+PARAM.:  E = 9.2 eV, complete set
+COMMENT: [e + H2O(X) -> e + OH(A) + H(X), Excitation]
+COMMENT: From Biagi's Magboltz v11.9
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 9.2	0.0
+ 10.0	0.0187e-20
+ 12.5	0.0733e-20
+ 15.0	0.0919e-20
+ 17.5	0.0932e-20
+ 20.0	0.0911e-20
+ 22.5	0.0845e-20
+ 25.0	0.0797e-20
+ 27.5	0.0767e-20
+ 30.0	0.0745e-20
+ 35.0	0.0698e-20
+ 40.0	0.0663e-20
+ 50.0	0.0603e-20
+ 60.0	0.0566e-20
+ 70.0	0.0535e-20
+ 80.0	0.0508e-20
+ 90.0	0.0483e-20
+ 100.0	0.0464e-20
+ 120.0	0.0432e-20
+ 140.0	0.0400e-20
+ 170.0	0.0364e-20
+ 200.0	0.0339e-20
+ 250.0	0.0297e-20
+ 300.0	0.0266e-20
+ 350.0	0.0240e-20
+ 400.0	0.0224e-20
+ 450.0	0.0206e-20
+ 500.0	0.0196e-20
+ 600.0	0.0179e-20
+ 700.0	0.0158e-20
+ 800.0	0.0149e-20
+ 900.0	0.0131e-20
+ 1000.0	0.0121e-20
+-----------------------------
+
+EXCITATION
+H2O -> H2O(A^1B_1)
+7.49
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + H2O(A^1B_1), Excitation
+PARAM.:  E = 7.49 eV
+COMMENT: [e + H2O(X) -> e + H2O(A1B1), Excitation]
+COMMENT: From Song et al. 2021 J. Phys. Chem. Ref. Data 50, 023103
+COMMENT: Decreased by 10% within the uncertainty
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+7.49	0.00E+00
+9	1.53E-21
+10	1.38E-21
+12	1.34E-21
+15	1.39E-21
+21.9	1.06E-21
+24.8	1.09E-21
+31.5	1.13E-21
+35.8	1.13E-21
+40.6	1.11E-21
+41.8	1.11E-21
+47.4	1.09E-21
+56.1	1.05E-21
+65.4	1.01E-21
+77.3	9.38E-22
+87.5	8.93E-22
+100.7	8.27E-22
+113.1	7.90E-22
+134.1	7.23E-22
+160.1	6.49E-22
+184.4	5.98E-22
+232.3	5.15E-22
+360.4	3.83E-22
+459.9	3.19E-22
+572	2.73E-22
+638.7	2.52E-22
+756.5	2.22E-22
+877.9	1.98E-22
+977.7	1.80E-22
+-----------------------------
+
+EXCITATION
+H2O -> H2O(a3B1)
+7.14
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + H2O(a3B1), Excitation
+PARAM.:  E = 7.14 eV
+COMMENT: [e + H2O(X) -> e + H2O(a3B1), Excitation]
+COMMENT: From Song et al. 2021 J. Phys. Chem. Ref. Data 50, 023103
+COMMENT: Decreased by 10% within the uncertainty
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+7.14E+00	0.00E+00
+9.00E+00	1.30E-21
+1.00E+01	8.97E-22
+1.20E+01	5.71E-22
+1.50E+01	2.80E-22
+2.00E+01	1.93E-22
+3.00E+01	1.07E-22
+-----------------------------
+
+EXCITATION
+H2O -> H2 + O(1S_0))
+13.696
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + H2 + O(1S_0), Excitation
+PARAM.:  E = 13.696 eV
+COMMENT:[e + H2O(X) -> e + H2(X) + O(1S_0), Excitation]
+COMMENT: Dissociation to neutral H2 and O in the 1S_0 state
+COMMENT: From Kedzierski et al. 1998 J. Phys. B: At. Mol. Opt. Phys. 31 5361
+COMMENT: Increased by 30% within the uncertainty
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+13.696	0.00E+00
+18.6	2.60E-23
+22.5	4.68E-23
+26.5	6.24E-23
+30.4	8.71E-23
+34.4	1.01E-22
+42.3	1.35E-22
+50.2	1.56E-22
+54.2	1.63E-22
+62.1	1.77E-22
+70	1.81E-22
+81.9	1.89E-22
+93.8	1.94E-22
+101.7	1.95E-22
+113.6	1.95E-22
+121.5	1.94E-22
+133.4	1.91E-22
+141.3	1.90E-22
+153.2	1.86E-22
+161.1	1.85E-22
+173	1.77E-22
+180.9	1.73E-22
+192.8	1.69E-22
+200.7	1.66E-22
+220.5	1.61E-22
+240.3	1.51E-22
+260.1	1.44E-22
+283.9	1.37E-22
+303.7	1.30E-22
+319.5	1.24E-22
+-----------------------------
+
+EXCITATION
+H2O -> OH + H
+18.0
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + OH + H, Excitation
+PARAM.:  E = 18.0 eV, complete set
+COMMENT: [e + H2O(X)-> e + OH(X) + H(BalmerAlpha3-2), Excitation]
+COMMENT: From Biagi's Magboltz v11.9
+COMMENT: Multiplied by 100
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+18	0
+20	2.04E-21
+30	1.05E-20
+40	1.69E-20
+50	2.24E-20
+60	2.91E-20
+70	3.26E-20
+80	3.46E-20
+90	3.54E-20
+100	3.55E-20
+150	3.11E-20
+200	2.69E-20
+300	2.04E-20
+400	1.62E-20
+500	1.32E-20
+600	1.14E-20
+700	1.01E-20
+800	8.92E-21
+900	8.14E-21
+1000	7.34E-21
+-----------------------------
+
+
+
+IONIZATION
+H2O -> H2O^+
+1.350000e+1
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + E + H2O+, Ionization
+PARAM.:  E = 13.5 eV
+COMMENT: [e + H2O(X) -> e + e + H2O(+,X), Ionization]
+COMMENT: From Itikawa Database on LXCat
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 1.350000e+1	0.000000e+0
+ 1.350001e+1	2.500000e-22
+ 1.500000e+1	1.260000e-21
+ 1.750000e+1	2.720000e-21
+ 2.000000e+1	4.110000e-21
+ 2.250000e+1	5.490000e-21
+ 2.500000e+1	6.520000e-21
+ 3.000000e+1	8.150000e-21
+ 3.500000e+1	9.580000e-21
+ 4.000000e+1	1.050000e-20
+ 4.500000e+1	1.120000e-20
+ 5.000000e+1	1.180000e-20
+ 6.000000e+1	1.240000e-20
+ 7.000000e+1	1.270000e-20
+ 8.000000e+1	1.310000e-20
+ 9.000000e+1	1.310000e-20
+ 1.000000e+2	1.310000e-20
+ 1.100000e+2	1.290000e-20
+ 1.250000e+2	1.270000e-20
+ 1.500000e+2	1.210000e-20
+ 1.750000e+2	1.160000e-20
+ 2.000000e+2	1.120000e-20
+ 2.500000e+2	1.010000e-20
+ 3.000000e+2	9.210000e-21
+ 4.000000e+2	7.890000e-21
+ 5.000000e+2	6.960000e-21
+ 6.000000e+2	6.180000e-21
+ 7.000000e+2	5.550000e-21
+ 8.000000e+2	5.020000e-21
+ 9.000000e+2	4.650000e-21
+ 1.000000e+3	4.320000e-21
+-----------------------------
+
+IONIZATION
+H2O -> H^+
+1.690000e+1
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + E + H+, Ionization
+PARAM.:  E = 16.9 eV
+COMMENT: [e + H2O(X) -> e + e + H(+,X) + OH(X), Ionization]
+COMMENT: From Itikawa Database on LXCat
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 1.690000e+1	0.000000e+0
+ 2.000000e+1	2.400000e-23
+ 2.250000e+1	9.100000e-23
+ 2.500000e+1	2.070000e-22
+ 3.000000e+1	4.330000e-22
+ 3.500000e+1	7.590000e-22
+ 4.000000e+1	1.100000e-21
+ 4.500000e+1	1.450000e-21
+ 5.000000e+1	1.780000e-21
+ 6.000000e+1	2.350000e-21
+ 7.000000e+1	2.790000e-21
+ 8.000000e+1	3.170000e-21
+ 9.000000e+1	3.430000e-21
+ 1.000000e+2	3.600000e-21
+ 1.100000e+2	3.700000e-21
+ 1.250000e+2	3.750000e-21
+ 1.500000e+2	3.710000e-21
+ 1.750000e+2	3.660000e-21
+ 2.000000e+2	3.510000e-21
+ 2.500000e+2	3.160000e-21
+ 3.000000e+2	2.840000e-21
+ 4.000000e+2	2.370000e-21
+ 5.000000e+2	1.980000e-21
+ 6.000000e+2	1.720000e-21
+ 7.000000e+2	1.490000e-21
+ 8.000000e+2	1.350000e-21
+ 9.000000e+2	1.200000e-21
+ 1.000000e+3	1.090000e-21
+-----------------------------
+
+IONIZATION
+H2O -> OH^+
+1.811600e+1
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + E + OH+, Ionization
+PARAM.:  E = 18.116 eV
+COMMENT: [e + H2O(X) -> e + e + H(X) + OH(+,X), Ionization]
+COMMENT: From Itikawa Database on LXCat
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 1.811600e+1	0.000000e+0
+ 2.000000e+1	1.450000e-22
+ 2.250000e+1	5.000000e-22
+ 2.500000e+1	8.550000e-22
+ 3.000000e+1	1.600000e-21
+ 3.500000e+1	2.220000e-21
+ 4.000000e+1	2.640000e-21
+ 4.500000e+1	3.000000e-21
+ 5.000000e+1	3.290000e-21
+ 6.000000e+1	3.640000e-21
+ 7.000000e+1	3.890000e-21
+ 8.000000e+1	4.090000e-21
+ 9.000000e+1	4.120000e-21
+ 1.000000e+2	4.180000e-21
+ 1.100000e+2	4.150000e-21
+ 1.250000e+2	4.120000e-21
+ 1.500000e+2	3.930000e-21
+ 1.750000e+2	3.810000e-21
+ 2.000000e+2	3.630000e-21
+ 2.500000e+2	3.340000e-21
+ 3.000000e+2	3.110000e-21
+ 4.000000e+2	2.660000e-21
+ 5.000000e+2	2.300000e-21
+ 6.000000e+2	2.030000e-21
+ 7.000000e+2	1.850000e-21
+ 8.000000e+2	1.690000e-21
+ 9.000000e+2	1.560000e-21
+ 1.000000e+3	1.430000e-21
+-----------------------------
+
+IONIZATION
+H2O -> O^+
+ 1.900000e+1
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + E + O+, Ionization
+PARAM.:  E = 19 eV
+COMMENT: [e + H2O(X) -> e + e + H2(X) + O(+,X), Ionization]
+COMMENT: From Itikawa Database on LXCat
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 1.900000e+1	0.000000e+0
+ 2.500000e+1	2.200000e-23
+ 3.000000e+1	3.700000e-23
+ 3.500000e+1	7.000000e-23
+ 4.000000e+1	1.320000e-22
+ 4.500000e+1	2.070000e-22
+ 5.000000e+1	2.750000e-22
+ 6.000000e+1	3.940000e-22
+ 7.000000e+1	4.840000e-22
+ 8.000000e+1	5.940000e-22
+ 9.000000e+1	6.660000e-22
+ 1.000000e+2	6.950000e-22
+ 1.100000e+2	7.380000e-22
+ 1.250000e+2	7.630000e-22
+ 1.500000e+2	7.520000e-22
+ 1.750000e+2	7.310000e-22
+ 2.000000e+2	7.070000e-22
+ 2.500000e+2	6.340000e-22
+ 3.000000e+2	5.510000e-22
+ 4.000000e+2	4.340000e-22
+ 5.000000e+2	3.730000e-22
+ 6.000000e+2	3.130000e-22
+ 7.000000e+2	2.710000e-22
+ 8.000000e+2	2.400000e-22
+ 9.000000e+2	2.200000e-22
+ 1.000000e+3	1.940000e-22
+-----------------------------
+
+IONIZATION
+H2O -> H2^+
+ 2.070000e+1
+SPECIES: e / H2O
+PROCESS: E + H2O -> E + E + H2+, Ionization
+PARAM.:  E = 20.7 eV
+COMMENT: [e + H2O(X) -> e + e + H2(+,X) + O(X), Ionization]
+COMMENT: From Itikawa Database on LXCat
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+ 2.070000e+1	0.000000e+0
+ 3.000000e+1	1.800000e-24
+ 3.500000e+1	3.900000e-24
+ 4.000000e+1	5.700000e-24
+ 4.500000e+1	7.000000e-24
+ 5.000000e+1	6.500000e-24
+ 6.000000e+1	6.600000e-24
+ 7.000000e+1	6.900000e-24
+ 8.000000e+1	6.300000e-24
+ 9.000000e+1	7.800000e-24
+ 1.000000e+2	7.500000e-24
+ 1.100000e+2	7.300000e-24
+ 1.250000e+2	6.400000e-24
+ 1.500000e+2	7.700000e-24
+ 1.750000e+2	7.100000e-24
+ 2.000000e+2	5.400000e-24
+ 2.500000e+2	5.000000e-24
+ 3.000000e+2	4.500000e-24
+ 4.000000e+2	4.000000e-24
+ 5.000000e+2	3.200000e-24
+ 6.000000e+2	2.900000e-24
+ 7.000000e+2	3.300000e-24
+ 8.000000e+2	2.200000e-24
+ 9.000000e+2	3.200000e-24
+ 1.000000e+3	2.400000e-24
+-----------------------------
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

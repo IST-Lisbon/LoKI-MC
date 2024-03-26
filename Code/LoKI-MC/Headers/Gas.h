@@ -11,8 +11,10 @@ class Collision;
 class Reaction;
 class WorkingConditions;
 
-template <class GasType>
-using GasPropertyFunctionPointer = double (*) (GasType* gas, std::vector<double> &argumentArray, std::vector<std::string> &argumentStrArray, WorkingConditions* workCond);
+namespace GasPropertyFunctions{
+	template <class GasType>
+	using functionPointer = double (*) (GasType* gas, std::vector<double> &argumentArray, std::vector<std::string> &argumentStrArray, WorkingConditions* workCond);
+}
 
 template <class GasType, class StateType>
 class Gas{
@@ -27,67 +29,67 @@ public:
 	std::string name; 								// name of the gas
 	
 	double mass = Constant::NON_DEF; 			    // mass of the gas
-	GasPropertyFunctionPointer<GasType> massFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> massFunc = NULL;
 	std::vector<double> massParams;
 	std::vector<std::string> massStrParams;
 
 	double harmonicFrequency = Constant::NON_DEF; 	// harmonic oscillator frequency (molecules)
-	GasPropertyFunctionPointer<GasType> harmonicFrequencyFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> harmonicFrequencyFunc = NULL;
 	std::vector<double> harmonicFrequencyParams;
 	std::vector<std::string> harmonicFrequencyStrParams;
 
 	double anharmonicFrequency = Constant::NON_DEF;	// anharmonic oscillator frequency (molecules)
-	GasPropertyFunctionPointer<GasType> anharmonicFrequencyFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> anharmonicFrequencyFunc = NULL;
 	std::vector<double> anharmonicFrequencyParams;
 	std::vector<std::string> anharmonicFrequencyStrParams;
 
 	double rotationalConstant = Constant::NON_DEF;	// rotational constant (molecules)
-	GasPropertyFunctionPointer<GasType> rotationalConstantFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> rotationalConstantFunc = NULL;
 	std::vector<double> rotationalConstantParams;
 	std::vector<std::string> rotationalConstantStrParams;
 
 	double lennardJonesDistance = Constant::NON_DEF;// sigma parameter of Lennard-Jones potential
-	GasPropertyFunctionPointer<GasType> lennardJonesDistanceFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> lennardJonesDistanceFunc = NULL;
 	std::vector<double> lennardJonesDistanceParams;
 	std::vector<std::string> lennardJonesDistanceStrParams;
 
 	double lennardJonesDepth = Constant::NON_DEF;	// epsilon parameter of Lennard-Jones potential
-	GasPropertyFunctionPointer<GasType> lennardJonesDepthFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> lennardJonesDepthFunc = NULL;
 	std::vector<double> lennardJonesDepthParams;
 	std::vector<std::string> lennardJonesDepthStrParams;
 
 	double electricDipolarMoment = Constant::NON_DEF; // electric dipolar moment (molecules)
-	GasPropertyFunctionPointer<GasType> electricDipolarMomentFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> electricDipolarMomentFunc = NULL;
 	std::vector<double> electricDipolarMomentParams;
 	std::vector<std::string> electricDipolarMomentStrParams;
 
 	double electricQuadrupoleMoment = Constant::NON_DEF; // electric quadrupole moment (molecules)
-	GasPropertyFunctionPointer<GasType> electricQuadrupoleMomentFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> electricQuadrupoleMomentFunc = NULL;
 	std::vector<double> electricQuadrupoleMomentParams;
 	std::vector<std::string> electricQuadrupoleMomentStrParams;
 
 	double polarizability = Constant::NON_DEF;      // polarizability (molecules)
-	GasPropertyFunctionPointer<GasType> polarizabilityFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> polarizabilityFunc = NULL;
 	std::vector<double> polarizabilityParams;
 	std::vector<std::string> polarizabilityStrParams;
 
 	double fraction = 0;                  			// fraction in the gas mixture
-	GasPropertyFunctionPointer<GasType> fractionFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> fractionFunc = NULL;
 	std::vector<double> fractionParams;
 	std::vector<std::string> fractionStrParams;
 
 	double heatCapacity = Constant::NON_DEF;        // constant pressure heat capacity 
-	GasPropertyFunctionPointer<GasType> heatCapacityFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> heatCapacityFunc = NULL;
 	std::vector<double> heatCapacityParams;
 	std::vector<std::string> heatCapacityStrParams;
 
 	double thermalConductivity = Constant::NON_DEF; // fraction in the gas mixture
-	GasPropertyFunctionPointer<GasType> thermalConductivityFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> thermalConductivityFunc = NULL;
 	std::vector<double> thermalConductivityParams;
 	std::vector<std::string> thermalConductivityStrParams;
 
 	double OPBParameter = Constant::NON_DEF;
-	GasPropertyFunctionPointer<GasType> OPBParameterFunc = NULL;
+	GasPropertyFunctions::functionPointer<GasType> OPBParameterFunc = NULL;
 	std::vector<double> OPBParameterParams;
 	std::vector<std::string> OPBParameterStrParams;
 

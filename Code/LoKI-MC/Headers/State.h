@@ -9,10 +9,13 @@
 #include <string>
 
 class Collision;
+class Reaction;
 class WorkingConditions;
 
-template <class StateType>
-using StatePropertyFunctionPointer = void (*) (std::vector<StateType*> &stateArray, std::vector<double> &argumentArray, std::vector<std::string> &argumentStrArray, WorkingConditions* workCond);
+namespace StatePropertyFunctions{
+	template <class StateType>
+	using functionPointer = void (*) (std::vector<StateType*> &stateArray, std::vector<double> &argumentArray, std::vector<std::string> &argumentStrArray, WorkingConditions* workCond);
+};
 
 template <class GasType, class StateType>
 class State{
@@ -36,17 +39,17 @@ public:
 	std::vector<StateType*> childArray;      // handle array to the child states (e.g. children of N2(X) are N2(X,v=0), N2(v=1),...)
 
 	double energy = Constant::NON_DEF; 			 // energy of the state
-	StatePropertyFunctionPointer<StateType> energyFunc = NULL;
+	StatePropertyFunctions::functionPointer<StateType> energyFunc = NULL;
 	std::vector<double> energyParams;
 	std::vector<std::string> energyStrParams;
 
 	double statisticalWeight = Constant::NON_DEF; // statistical weight of the state
-	StatePropertyFunctionPointer<StateType> statisticalWeightFunc = NULL;
+	StatePropertyFunctions::functionPointer<StateType> statisticalWeightFunc = NULL;
 	std::vector<double> statisticalWeightParams;
 	std::vector<std::string> statisticalWeightStrParams;
 
 	double population = 0; 				          // population of the state relative to its siblings
-	StatePropertyFunctionPointer<StateType> populationFunc = NULL;
+	StatePropertyFunctions::functionPointer<StateType> populationFunc = NULL;
 	std::vector<double> populationParams;
 	std::vector<std::string> populationStrParams;
 	bool populationIsUpdated = false;
@@ -54,22 +57,17 @@ public:
 	double density = 0; 				          // absolute density (relative to the gas density)	
 
 	double reducedDiffCoeff = Constant::NON_DEF;  // reduced free diffusion coefficient
-	StatePropertyFunctionPointer<StateType> reducedDiffCoeffFunc = NULL;
+	StatePropertyFunctions::functionPointer<StateType> reducedDiffCoeffFunc = NULL;
 	std::vector<double> reducedDiffCoeffParams;
 	std::vector<std::string> reducedDiffCoeffStrParams;
 
 	double reducedMobility = Constant::NON_DEF;   // reduced free mobility coefficient
-	StatePropertyFunctionPointer<StateType> reducedMobilityFunc = NULL;
+	StatePropertyFunctions::functionPointer<StateType> reducedMobilityFunc = NULL;
 	std::vector<double> reducedMobilityParams;
 	std::vector<std::string> reducedMobilityStrParams;
 
-	// concerning electron kinetics
-	bool isTarget = false;                          // true if the state is the target of a collision, false otherwise
-	std::vector<Collision*> collisionArray;         // handle array to the collisions of which the target is state
-	std::vector<Collision*> collisionArrayExtra;	
-
 	State(){;}
-	// note that 'addFamily' is at 'chemState' and 'eedfState'
+	// note that 'addFamily' is at 'eedfState'
 
 	void evaluateDensity(){
 		if (type=="rot"){

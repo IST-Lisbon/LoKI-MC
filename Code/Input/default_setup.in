@@ -4,18 +4,20 @@
 
 % --- configuration of the working conditions ---
 workingConditions:
-  reducedElecField: [1,5,10,50,100]       % in Td
+  reducedElecField: [1,5,10,50,100]           % in Td
+  excitationFrequency: 0                      % in Hz
+  elecFieldAngle: 180                         % in degrees
+  reducedMagField: 0                          % in Hx
   gasPressure: 133.32                         % in Pa
-  gasTemperature: 300                         % in K
+  gasTemperature: 300                         % in K  
 
 % --- configuration of the electron kinetics ---
 electronKinetics:
-  isOn: true               % true or false (to activate of deactivate the electron Kinetics)
+  isOn: true               % true or false 
   eedfType: boltzmannMC    % only boltzmannMC, for now
-  ionizationOperatorType: usingSDCS % oneTakesAll, equalSharing or usingSDCS
-  ionizationScattering: isotropic   % isotropic or anisotropic
+  ionizationOperatorType: usingSDCS % oneTakesAll, equalSharing, usingSDCS or randomUniform
   LXCatFiles:            % cross section files
-    - Oxygen/O2_LXCat.txt                
+    - Oxygen/O2_LXCat.txt                % NOT to be used with Laporta vibrational transitions
     - Oxygen/O2_rot_LXCat.txt
   gasProperties:        % properties of the gases (S.I. Units)
     mass: Databases/masses.txt
@@ -28,45 +30,34 @@ electronKinetics:
     OPBParameter: Databases/OPBParameter.txt
   stateProperties:      % properties of the states (S.I. Units except for the energy [eV])
     energy:
-      - O2(X,v=*) = harmonicOscillatorEnergy
-      - O2(X,v=0,J=*) = rigidRotorEnergy    
+      - O2(X,v=*) = morseOscillatorEnergy
+      - O2(X,v=0,J=*) = rigidRotorEnergy  
     statisticalWeight:
       - O2(X) = 3
       - O2(a1Dg) = 2 
-      - O2(b1Sg+) = 1 
+      - O2(b1Sg+) = 1
+      - O2(A3Su+_C3Du_c1Su-) = 10 
       - O2(X,v=*) = 3
       - O(3P) = 9
       - O(1D) = 5
       - O2(X,v=0,J=*) = rotationalDegeneracy
     population:
-      - O2(X) = 1.0
+      - O2(X) = 1
+%      - O2(X,v=0) = 1.0
       - O2(X,v=*) = boltzmannPopulation@gasTemperature
       - O2(X,v=0,J=*) = boltzmannPopulation@gasTemperature
   numericsMC:
-    nElectrons: 1E4                         % number of electrons in the ensemble
+    nElectrons: 2E4                         % number of electrons in the ensemble
     gasTemperatureEffect: smartActivation   % false, true or smartActivation
-    nIntegrationPoints: 3E4                 % number of integration points after the steady-state is reached   
-%    nIntegratedSSTimes: 10                 % number of integrated steady-state times
-%    maxCollisionsBeforeSteadyState: 5E4    % maximum number of collisions per electron before the steady-state is considered
-%    maxCollisionsAfterSteadyState: 5E4     % maximum number of collisions per electron after the steady-state is reached
-%    relError:                              % tolerances for the relative errors of the MC results
-%      meanEnergy: 1E-3
-%      fluxDriftVelocity: 1E-2
-%      fluxDiffusionCoeffs: 1.5E-2
-%      powerBalance: 1E-4
-%    nInterpPoints: 1E4
-%    nEnergyCells: 500
-%    nCosAngleCells: 50
-%    nAxialVelocityCells: 200
-%    nRadialVelocityCells: 200
-
-
+    nIntegrationPoints: 1E4                 % number of integration points after the steady-state is reached
+    nIntegratedSSTimes: 2                   % integrated time, given as multiples of the steady-state time
+    
 % --- configuration of the graphical user interface ---
 gui: 
   isOn: true
-  fontSize: 9
   plotOptions:
     - MCTemporalInfo
+    - MCTemporalInfo_periodic
     - distributionFunctions
     - swarmParameters
     - powerBalance
@@ -77,7 +68,7 @@ gui:
 % ---  configuration of the output files ---
 output: 
   isOn: true
-  folder: swarm_O2
+  folder: swarm_O2_short
   dataFiles:
     - eedf
     - evdf
@@ -86,4 +77,5 @@ output:
     - powerBalance
     - MCSimDetails
 %    - MCTemporalInfo
+    - MCTemporalInfo_periodic
     - lookUpTable

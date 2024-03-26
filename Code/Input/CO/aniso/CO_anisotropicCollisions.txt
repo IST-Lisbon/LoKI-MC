@@ -1,0 +1,14 @@
+group;CO;Rotational;bornDipole
+single;e+CO(X,v=0,J=0)<->e+CO(X,v=0,J=2),Rotational;isotropic
+single;e+CO(X,v=0,J=2)<->e+CO(X,v=0,J=4),Rotational;isotropic
+single;e+CO(X,v=0,J=4)<->e+CO(X,v=0,J=6),Rotational;isotropic
+single;e+CO(X,v=0,J=6)<->e+CO(X,v=0,J=8),Rotational;isotropic
+single;e+CO(X,v=0,J=8)<->e+CO(X,v=0,J=10),Rotational;isotropic
+single;e+CO(X,v=0,J=10)<->e+CO(X,v=0,J=12),Rotational;isotropic
+single;e+CO(X,v=0,J=12)<->e+CO(X,v=0,J=14),Rotational;isotropic
+single;e+CO(X,v=0,J=14)<->e+CO(X,v=0,J=16),Rotational;isotropic
+single;e+CO(X,v=0,J=16)<->e+CO(X,v=0,J=18),Rotational;isotropic
+single;e+CO(X,v=0,J=18)<->e+CO(X,v=0,J=20),Rotational;isotropic
+single;e+CO(X,v=0,J=20)<->e+CO(X,v=0,J=22),Rotational;isotropic
+single;e+CO(X,v=0,J=22)<->e+CO(X,v=0,J=24),Rotational;isotropic
+single;e+CO(X,v=0,J=24)<->e+CO(X,v=0,J=26),Rotational;isotropic  

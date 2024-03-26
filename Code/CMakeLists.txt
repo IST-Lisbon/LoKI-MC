@@ -28,9 +28,15 @@ if(MSVC)
 else() # clang or g++
     # warning flags: -Wall -Wextra -Werror
     message(STATUS "Using g++ or Clang")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O2 ${OpenMP_C_FLAGS}")
-    message(${CMAKE_CXX_FLAGS_RELEASE}) 
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 ${OpenMP_C_FLAGS}") 
+    # turning off deprecation warnings
+    set(DEPRECATION_FLAG "-Wno-deprecated-declarations")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} ${DEPRECATION_FLAG}")    
 endif()
+
+message(${CMAKE_CXX_FLAGS_RELEASE})
+
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 # --- loki-mc --- #
 include_directories(./)

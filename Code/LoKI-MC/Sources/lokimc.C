@@ -9,6 +9,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <omp.h>
 
 template <class ElectronKineticsType> 
 void LoKISimulation(std::string setupFileName){
@@ -57,7 +58,6 @@ int main(int argc, char* argv[]){
 		numberOfCores = std::atoi(argv[2]);
 	}
 	else{
-		//Message::error("The name of the setup file should be put when the executable file is called.");
 		std::cout<<"Insert the name of the setup file and the number of threads in the following form:\nSETUP_FILE  NUM_THREADS\n";
 		char setupName[100];
 		int ret = std::scanf("%s %d", setupName, &numberOfCores);
@@ -78,7 +78,6 @@ int main(int argc, char* argv[]){
 	if (eedfType == "boltzmannMC"){
 		LoKISimulation<BoltzmannMC>(setupFileName);
 	}
-
 	else if (eedfType == "prescribedEedf"){
 		LoKISimulation<PrescribedEedf>(setupFileName);
 	}

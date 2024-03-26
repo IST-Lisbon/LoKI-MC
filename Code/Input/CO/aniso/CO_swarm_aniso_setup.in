@@ -1,0 +1,83 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%   SWARM ANALYSIS CO         %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% --- configuration of the working conditions ---
+workingConditions:
+  reducedElecField: [1,10,50,100,1000]        % in Td
+  gasPressure: 133.32                         % in Pa
+  gasTemperature: 300                         % in K
+  excitationFrequency: 0                      % in Hz
+  elecFieldAngle: 180                         % in degrees
+  reducedMagField: 0                          % in Hx
+
+% --- configuration of the electron kinetics ---
+electronKinetics:
+  isOn: true               % true or false 
+  eedfType: boltzmannMC    % boltzmannMC or prescribedEedf
+  ionizationOperatorType: usingSDCS % oneTakesAll, equalSharing, usingSDCS or randomUniform
+  LXCatFiles:            % cross section files
+    - CO/aniso/CO_aniso_LXCat.txt
+    - CO/aniso/CO_aniso_dipint-rot_LXCat.txt
+    - CO/aniso/CO_aniso_quadint-rot_LXCat.txt
+    - CO/aniso/CO_aniso_dipmt-rot_LXCat.txt
+  gasProperties:        % properties of the gases (S.I. Units)
+    mass: Databases/masses.txt
+    fraction:
+      - CO = 1
+    harmonicFrequency: Databases/harmonicFrequencies.txt
+    anharmonicFrequency: Databases/anharmonicFrequencies.txt
+    rotationalConstant: Databases/rotationalConstants.txt
+    electricQuadrupoleMoment: Databases/quadrupoleMoment.txt
+    OPBParameter: Databases/OPBParameter.txt
+  stateProperties:      % properties of the states (S.I. Units except for the energy [eV])
+    energy:
+      - CO(X,v=*) = harmonicOscillatorEnergy
+      - CO(X,v=0,J=*) = rigidRotorEnergy  
+    statisticalWeight:
+      - CO(X) = 1.0
+      - CO(X,v=*) = 1.0
+      - CO(X,v=0,J=*) = rotationalDegeneracy
+      - CO(a3P) = 6
+    population:
+      - CO(X) = 1.0
+      - CO(X,v=*) = boltzmannPopulation@gasTemperature
+      - CO(X,v=0,J=*) = boltzmannPopulation@gasTemperature
+  anisotropicScattering:
+    isOn: true
+    angleNumber: 5000
+    collisions: 
+      - CO/aniso/CO_anisotropicCollisions.txt      
+  numericsMC:
+    nElectrons: 2E4                         % number of electrons in the ensemble
+    gasTemperatureEffect: smartActivation   % false, true or smartActivation
+    nIntegrationPoints: 1E4                 % number of integration points after the steady-state is reached
+    nIntegratedSSTimes: 3                   % integrated time, given as multiples of the steady-state time
+
+% --- configuration of the graphical user interface ---
+gui: 
+  isOn: true
+  plotOptions:
+    - MCTemporalInfo
+    - MCTemporalInfo_periodic
+    - distributionFunctions
+    - swarmParameters
+    - powerBalance
+  terminalDisp:
+    - setup
+    - MCStatus
+
+% ---  configuration of the output files ---
+output: 
+  isOn: true
+  folder: swarm_CO_aniso_short
+  dataFiles:
+    - eedf
+    - evdf
+    - swarmParameters
+    - rateCoefficients
+    - powerBalance
+    - MCSimDetails
+%    - MCTemporalInfo
+    - MCTemporalInfo_periodic
+    - lookUpTable

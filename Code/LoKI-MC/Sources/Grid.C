@@ -32,7 +32,7 @@ Grid::Grid(){
 			cellNumber = FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nEnergyCells");
 		}
 		else{
-			cellNumber = 500;
+			cellNumber = 1000;
 		}
 		double maxEnergy = 1; // this is irrelevant at this stage, since the maxEnergy is defined in the Monte Carlo simulation
 		step = maxEnergy/cellNumber;

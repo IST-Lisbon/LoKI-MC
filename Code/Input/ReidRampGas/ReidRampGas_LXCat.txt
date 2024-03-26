@@ -1,0 +1,21 @@
+SPECIES: e / A
+PROCESS: E + A -> E + A, Elastic
+PARAM.:  m/M = 1.37144977332180e-04, complete set
+COMMENT: [e + A(gnd) -> e + A(gnd), Elastic]
+UPDATED: 2018-06-05 11:00:00
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+0.000000 6.00000e-20
+1000.000000 6.00000e-20
+-----------------------------
+
+SPECIES: e / A
+PROCESS: E + A -> E + A(exc), Excitation
+PARAM.:  E = 0.200000 eV, complete set
+COMMENT: [e + A(gnd) -> e + A(exc), Excitation]
+UPDATED: 2018-06-05 11:00:00
+COLUMNS: Energy (eV) | Cross section (m2)
+-----------------------------
+0.200000 0.00000e+00
+1000.000000 9.99800e-17
+-----------------------------

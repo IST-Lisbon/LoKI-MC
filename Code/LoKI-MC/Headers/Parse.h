@@ -7,10 +7,11 @@
 #include <vector>
 #include <map>
 
-struct LXCatEntryStruct;		// -> declarated below
-struct rawStateStruct;			//
-
 namespace Parse{
+
+	struct LXCatEntryStruct;		//
+	struct rawStateStruct;			//
+
 	void setupFile(std::string);
 
 	std::vector<LXCatEntryStruct> LXCatFiles(std::vector<std::string>);
@@ -20,6 +21,8 @@ namespace Parse{
 	void findCatalysts(std::vector<rawStateStruct>&, std::vector<double>&, std::vector<rawStateStruct>&, std::vector<double>&, std::vector<rawStateStruct>&, std::vector<double>&);
 	double getStoiCoeff(std::string&);
 	rawStateStruct getRawState(std::string);
+
+	std::vector<std::string> readFileStrings(std::string fileName);
 	
 	void modifyPropertyMap(std::string, std::map<std::string,std::string>&);
 	void modifyPropertyMap(std::string, std::map<std::string,double>&);	
@@ -45,31 +48,32 @@ namespace Parse{
 	std::vector<std::string> tokenizeSpaces(std::string);
 	std::vector<std::string> tokenizeCharacters(std::string,char*);
 	bool hasJustSpaces(std::string);
-};
 
-struct LXCatEntryStruct{
-	std::string type;
+	struct LXCatEntryStruct{
+		std::string type;
 
-	int reactantElectrons = 0;
-	int productElectrons = 0;
-	std::vector<rawStateStruct> target;
-	std::vector<double> targetStoiCoeff;
-	std::vector<rawStateStruct> productArray;
-	std::vector<double> productStoiCoeff;
+		int reactantElectrons = 0;
+		int productElectrons = 0;
+		std::vector<rawStateStruct> target;
+		std::vector<double> targetStoiCoeff;
+		std::vector<rawStateStruct> productArray;
+		std::vector<double> productStoiCoeff;
 
-	bool isReverse = false;
+		bool isReverse = false;
 
-	double threshold = 0;
-	std::vector<std::vector<double>> rawCrossSection;
-};
+		double threshold = 0;
+		std::vector<std::vector<double>> rawIntegralCrossSection;
+		std::vector<std::vector<double>> rawMomTransfCrossSection;
+	};
 
-struct rawStateStruct{
-	std::string gasName;
-	std::string ionCharg;
-	std::string eleLevel;
-	std::string vibLevel;
-	std::string rotLevel;
-	std::string vibRange;
+	struct rawStateStruct{
+		std::string gasName;
+		std::string ionCharg;
+		std::string eleLevel;
+		std::string vibLevel;
+		std::string rotLevel;
+		std::string vibRange;
+	};	
 };
 
 #endif

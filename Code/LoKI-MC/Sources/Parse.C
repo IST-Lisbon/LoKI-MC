@@ -40,16 +40,16 @@ void Parse::setupFile(std::string fileName){
 	setupFile.close();
 }
 
-std::vector<LXCatEntryStruct> Parse::LXCatFiles(std::vector<std::string> LXCatFileNames){
+std::vector<Parse::LXCatEntryStruct> Parse::LXCatFiles(std::vector<std::string> LXCatFileNames){
 	// LXCatFiles reads LXCat files, parse their content and returns a structure array 'LXCatEntryArray' with all the information
 
 	std::string line, descriptionLine;
 	std::vector<std::string> tokens;
 	int beginThreshold, endThreshold;
-	std::vector<double> xCross, yCross;
+	std::vector<double> energies, CSValues;
 	std::vector<std::vector<double>> rawCrossSection;
 	double threshold = 0;
-	std::vector<LXCatEntryStruct> LXCatEntryArray;
+	std::vector<Parse::LXCatEntryStruct> LXCatEntryArray;
 
     // loop over different "LXCatFiles" files that have to be read
     for (auto fileName : LXCatFileNames){
@@ -64,8 +64,8 @@ std::vector<LXCatEntryStruct> Parse::LXCatFiles(std::vector<std::string> LXCatFi
 					if (line.find("PROCESS:") != std::string::npos){
 
 						std::string processLine = line;
-						xCross.clear();
-						yCross.clear();
+						energies.clear();
+						CSValues.clear();
 						rawCrossSection.clear();
 						threshold = 0;
 
@@ -94,14 +94,23 @@ std::vector<LXCatEntryStruct> Parse::LXCatFiles(std::vector<std::string> LXCatFi
 						// read until the end of the cross section
 						while (getline(file, line) && line.find("-----") == std::string::npos){
 							tokens = tokenizeSpaces(line);
-							if (tokens.size() != 2){
-								Message::error(std::string("Error when reading the cross section of the LXCat collision described in the following line:\n") + descriptionLine +"Check the LXCat file '" + fileName + "'");
+							if (tokens.empty()){
+								continue;
 							}
-							xCross.push_back(str2value(tokens[0]));
-							yCross.push_back(str2value(tokens[1]));
+							else if (tokens.size() == 2){
+								energies.push_back(str2value(tokens[0]));
+								CSValues.push_back(str2value(tokens[1]));
+							}							
+							else{	
+								Message::error(std::string("Error when reading the cross section values of the LXCat collision described in the following line:\n") + descriptionLine +"Check the LXCat file '" + fileName + "'");
+							}
 						}
-						rawCrossSection.push_back(xCross);
-						rawCrossSection.push_back(yCross);
+						if (energies.empty()){
+							Message::error(std::string("Error when reading the cross section values of the LXCat collision described in the following line:\n") + descriptionLine +"Check the LXCat file '" + fileName + "'");	
+						}
+						rawCrossSection.push_back(energies);
+						rawCrossSection.push_back(CSValues);						
+
 						addLXCatEntry(descriptionLine, threshold, rawCrossSection, LXCatEntryArray);
 					}
 				}
@@ -115,31 +124,54 @@ std::vector<LXCatEntryStruct> Parse::LXCatFiles(std::vector<std::string> LXCatFi
     return LXCatEntryArray;
 }
 
-void Parse::addLXCatEntry(std::string descriptionLine, double threshold, std::vector<std::vector<double>> rawCrossSection, std::vector<LXCatEntryStruct> &LXCatEntryArray){ 
+void Parse::addLXCatEntry(std::string descriptionLine, double threshold, std::vector<std::vector<double>> rawCrossSection, std::vector<Parse::LXCatEntryStruct> &LXCatEntryArray){ 
 	// addLXCatEntry analyses the information of a particular LXCat entry and adds it to the structure array LXCatEntryArray
 
-	LXCatEntryStruct LXCatEntry;
+	Parse::LXCatEntryStruct LXCatEntry;
 
 	// eliminate the spaces from the string
 	std::string spacedLine = descriptionLine;
 	descriptionLine = removeSpaces(spacedLine);
 
-	// start by finding the description part: collision, type
+	// start by finding the description part: collision, type, (subtype)
 	int descriptionBegin = descriptionLine.find_first_of('[')+1, descriptionEnd = descriptionLine.find_last_of(']')-1;
 	std::string description = descriptionLine.substr(descriptionBegin, descriptionEnd-descriptionBegin+1);
 
-	// find the type of collision
-	int collisionEnd = description.find_last_of(",");
-	std::string type = description.substr(collisionEnd+1);
-	if (type != "Elastic" && type != "Effective" && type != "Attachment" && type != "Ionization" &&
-		type != "Excitation" && type != "Vibrational" && type != "Rotational"){
+	// separate the collision description through commas
+	std::vector<std::string> descriptionSplitted = tokenizeCharacters(description,(char*)",");
+	std::string lastDescriptionString = descriptionSplitted.back();
+
+	// check if the last string is the subtype ("momentum-transfer" or "integral") and remove it from the splitted description
+	std::string subType;
+	if (boost::iequals(lastDescriptionString, "momentum-transfer") || boost::iequals(lastDescriptionString, "integral")){
+		subType = boost::algorithm::to_lower_copy(lastDescriptionString);
+		descriptionSplitted.pop_back();
+		lastDescriptionString = descriptionSplitted.back();
+	}
+	else if (lastDescriptionString == "Elastic" || lastDescriptionString == "Effective"){
+		// Elastic and Effective have "momentum-transfer" subtype by default
+		subType = "momentum-transfer";
+	}
+	else{
+		// other collision types have "integral" subtype by default
+		subType = "integral";
+	}	
+
+	// assign the collision type and remove it from the splited description
+	if (lastDescriptionString != "Elastic" && lastDescriptionString != "Effective" && lastDescriptionString != "Attachment" && lastDescriptionString != "Ionization" &&
+		lastDescriptionString != "Excitation" && lastDescriptionString != "Vibrational" && lastDescriptionString != "Rotational"){
 		Message::error(std::string("Error in the parsing of one LXCat file. Invalid type of collision in the following line: \n") + spacedLine + 
 					   "\nValid types are: Elastic, Effective, Attachment, Ionization, Excitation, Vibrational and Rotational.");
-	}
-	LXCatEntry.type = type;
+	}				   		
+	LXCatEntry.type = lastDescriptionString;
+	descriptionSplitted.pop_back();
 
-	// get the collision string
-	std::string collisionPart = description.substr(0,collisionEnd);
+	// get the collision string by joining what is left from the splitted description
+	std::string collisionPart;
+	for (auto str : descriptionSplitted){
+		collisionPart += "," + str;
+	}
+	collisionPart.erase(0,1);
 
 	// parsing the collision part
 
@@ -180,7 +212,7 @@ void Parse::addLXCatEntry(std::string descriptionLine, double threshold, std::ve
 			// get the stoiCoeff and eliminate the correspondent part
 			stoiCoeff = getStoiCoeff(stateString); 
 
-			// parsing electrons orregular reactants (states)
+			// parsing electrons or regular reactants (states)
 			if (stateString == "e" || stateString == "E"){
 				LXCatEntry.reactantElectrons += stoiCoeff;
 			}
@@ -252,19 +284,23 @@ void Parse::addLXCatEntry(std::string descriptionLine, double threshold, std::ve
 	}
 
 	LXCatEntry.threshold = threshold;
-	LXCatEntry.rawCrossSection = rawCrossSection;
-
+	if (subType == "momentum-transfer"){
+		LXCatEntry.rawMomTransfCrossSection = rawCrossSection;
+	}
+	else{
+		LXCatEntry.rawIntegralCrossSection = rawCrossSection;
+	}
 
 	LXCatEntryArray.push_back(LXCatEntry);
 }
 
-void Parse::removeDuplicatedStates(std::vector<rawStateStruct>& stateArray, std::vector<double>& stoiCoeff){
+void Parse::removeDuplicatedStates(std::vector<Parse::rawStateStruct>& stateArray, std::vector<double>& stoiCoeff){
 
 	if (stateArray.empty()){
 		return;
 	}
 
-	std::vector<rawStateStruct> newStateArray;
+	std::vector<Parse::rawStateStruct> newStateArray;
 	std::vector<double> newStoiCoeff;
 
 	int numStates = stateArray.size();
@@ -294,7 +330,7 @@ void Parse::removeDuplicatedStates(std::vector<rawStateStruct>& stateArray, std:
 	stoiCoeff = newStoiCoeff;
 }
 
-void Parse::findCatalysts(std::vector<rawStateStruct> &reactantArray, std::vector<double> &reactantStoiCoeff, std::vector<rawStateStruct> &productArray, std::vector<double> &productStoiCoeff, std::vector<rawStateStruct> &catalystArray, std::vector<double> &catalystStoiCoeff){ 
+void Parse::findCatalysts(std::vector<Parse::rawStateStruct> &reactantArray, std::vector<double> &reactantStoiCoeff, std::vector<Parse::rawStateStruct> &productArray, std::vector<double> &productStoiCoeff, std::vector<Parse::rawStateStruct> &catalystArray, std::vector<double> &catalystStoiCoeff){ 
 
 	if (reactantArray.empty() || productArray.empty()){
 		return;
@@ -365,9 +401,9 @@ double Parse::getStoiCoeff(std::string &stateToken){
 }
 
 
-rawStateStruct Parse::getRawState(std::string stateName){
+Parse::rawStateStruct Parse::getRawState(std::string stateName){
 	// returns a structure with the information parsed from the state name: gasName, eleLevel, vibLevel and rotLevel (and vibRange)
-		rawStateStruct rawState;
+		Parse::rawStateStruct rawState;
 
 		std::vector<std::string> tokens = tokenizeCharacters(stateName,(char*)"()");
 		if (tokens.size() == 1){
@@ -434,6 +470,25 @@ rawStateStruct Parse::getRawState(std::string stateName){
 		}
 
 		return rawState;
+}
+
+std::vector<std::string> Parse::readFileStrings(std::string fileName){
+	std::ifstream file(fileName);
+	std::string line, cleanLine;
+	std::vector<std::string> fileStrings;
+	if (file.is_open()){
+		while( getline(file,line) ){
+			cleanLine = removeSpaces(removeComments(line));
+			if (!cleanLine.empty()){
+				fileStrings.push_back(cleanLine);
+			}
+		}	
+	}
+	else{
+		Message::error(std::string("The file ") + fileName + " could not be opened.");
+	}
+	file.close();
+	return fileStrings;	
 }
 
 void Parse::modifyPropertyMap(std::string fileName, std::map<std::string,std::string> &propertyMap){

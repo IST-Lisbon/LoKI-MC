@@ -7,6 +7,9 @@ if "%1" == "all" (
 	cd C:\DEV
 	echo ************************************************************************
 	echo ************  Get the latest vcpkg version and install it at C:/DEV ************
+	set GIT_TRACE_PACKET=1
+	set GIT_TRACE=1
+	set GIT_CURL_VERBOSE=1
 	git clone https://github.com/microsoft/vcpkg.git
 	cd vcpkg
 	call .\bootstrap-vcpkg.bat

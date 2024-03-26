@@ -1,6 +1,7 @@
 #ifndef __GUI__
 #define __GUI__
 #include "LoKI-MC/Headers/WorkingConditions.h"
+#include "LoKI-MC/Headers/GeneralDefinitions.h"
 #include "LoKI-MC/Headers/FieldInfo.h"
 #include "LoKI-MC/Headers/PrescribedEedf.h"
 #include "External/eigen-3.4.0/Eigen/Dense"
@@ -17,6 +18,8 @@
     #define SUPRESS_OUTPUT " >>/dev/null 2>>/dev/null"
 #endif
 
+class BoltzmannMC;
+
 template <class ElectronKineticsType>
 class GUI{
 public:
@@ -26,6 +29,7 @@ public:
 	char gnuplotTermOptions[500];
 
 	bool MCTemporalInfoIsToBePlotted = false;
+	bool MCTemporalInfoPeriodicIsToBePlotted = false;
 	bool distributionFunctionsIsToBePlotted = false;
 	bool swarmParamsIsToBePlotted = false;
 	bool powerBalanceIsToBePlotted = false;
@@ -37,6 +41,7 @@ public:
 	int numberOfJobs, currentJobID;
 
 	std::string variableCondition;
+	bool isCylindricallySymmetric;
 	std::string xLabel;	
 
 	// ----- class methods ----- //
@@ -63,6 +68,9 @@ public:
 			if (option == "MCTemporalInfo"){
 				MCTemporalInfoIsToBePlotted = true;
 			}
+			else if (option == "MCTemporalInfo_periodic"){
+				MCTemporalInfoPeriodicIsToBePlotted = true;
+			}			
 			else if (option == "distributionFunctions"){
 				distributionFunctionsIsToBePlotted = true;
 			}
@@ -92,7 +100,18 @@ public:
 		else if (variableCondition == "reducedElecField"){
 			xLabel = "E/N (Td)";
 		}
-		
+		else if (variableCondition == "reducedMagField"){
+			xLabel = "B/N (Hx)";
+		}
+		else if (variableCondition == "elecFieldAngle"){
+			xLabel = "E-angle (º)";
+		}
+		else if (variableCondition == "excitationFrequency"){
+			xLabel = "Exc. Frequency (Hz)";
+		}
+
+		isCylindricallySymmetric = setup->workCond->isCylindricallySymmetric;
+
 		if (setup->enableElectronKinetics){
 		    // connect the signal 'obtainedNewEedfSignal' to 'GUI::electronKineticsSolution', in order to update the GUI each time a new eedf is found
 		    // idea taken from https://stackoverflow.com/questions/3047381/boost-signals-and-passing-class-method
@@ -106,14 +125,17 @@ public:
 		updateInputParameter();
 
 		// plot selected results of the electron kinetics
-		if (MCTemporalInfoIsToBePlotted){
+		if (MCTemporalInfoIsToBePlotted && eedfType == "boltzmannMC" ){
 			plotMCTemporalInfo(electronKinetics->samplingTimes, electronKinetics->meanEnergies, electronKinetics->meanPositions, electronKinetics->positionCovariances, electronKinetics->meanVelocities);
 		}
+		if (MCTemporalInfoPeriodicIsToBePlotted && eedfType == "boltzmannMC"){
+			plotMCTemporalInfoPeriodic(electronKinetics->integrationPhases, electronKinetics->meanEnergies_periodic, electronKinetics->fluxVelocities_periodic, electronKinetics->bulkVelocities_periodic, electronKinetics->fluxDiffusionCoeffs_periodic, electronKinetics->bulkDiffusionCoeffs_periodic);
+		}		
 		if (distributionFunctionsIsToBePlotted){
 			plotDistributionFunctions(electronKinetics->eedf, electronKinetics->energyGrid->cell, electronKinetics->evdf, electronKinetics->radialVelocityCells ,electronKinetics->axialVelocityCells);
 		}
 		if (powerBalanceIsToBePlotted){
-			plotPower(electronKinetics->power);
+			plotPower(electronKinetics->power.Map);
 		}
 		if (swarmParamsIsToBePlotted){
 			plotSwarm(electronKinetics->swarmParam);
@@ -131,13 +153,27 @@ public:
 		else if (variableCondition == "reducedElecField"){
 			inputParameter = electronKinetics->workCond->reducedElecField;
 		}
+		else if (variableCondition == "reducedMagField"){
+			inputParameter = electronKinetics->workCond->reducedMagField;
+		}
+		else if (variableCondition == "elecFieldAngle"){
+			inputParameter = electronKinetics->workCond->elecFieldAngle;
+		}
+		else if (variableCondition == "excitationFrequency"){
+			inputParameter = electronKinetics->workCond->excitationFrequency;
+		}
 	}	
 
 	void plotMCTemporalInfo(Eigen::ArrayXd &samplingTimes, Eigen::ArrayXd &meanEnergies, Eigen::ArrayXXd &meanPositions, Eigen::ArrayXXd &positionCovariances, Eigen::ArrayXXd &meanVelocities){
 
 		// write the time-dependent data in an auxiliary file
 		FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/MCTemporalInfo.dat", "w");
-		std::fprintf(fileID, "#Time(s)             MeanEnergy(eV)      xPos(m)             yPos(m)             zPos(m)             xSqWidth(m2)        ySqWidth(m2)        zSqWidth(m2)        xVel(m/s)           yVel(m/s)           zVel(m/s)           \n");
+		std::vector<std::string> vars = {"#Time(s)", "MeanEnergy(eV)", "xPos(m)", "yPos(m)", "zPos(m)", "xSqWidth(m2)", "ySqWidth(m2)", "zSqWidth(m2)", "xVel(m/s)", "yVel(m/s)", "zVel(m/s)"};
+		std::string header;
+		for (auto var: vars){
+			header += var + std::string(21-var.size(), ' ');
+		}		
+		std::fprintf(fileID, "%s\n", header.c_str());
 		int nSamplingPoints = electronKinetics->nSamplingPoints;
 		for (int i = 0; i < nSamplingPoints; ++i){
 			std::fprintf(fileID, "%-20.10e %-20.10e %-20.10e %-20.10e %-20.10e %-20.10e %-20.10e %-20.10e %-20.10e %-20.10e %-20.10e\n", samplingTimes[i], meanEnergies[i], meanPositions(i, 0), meanPositions(i, 1), meanPositions(i, 2), 
@@ -147,10 +183,43 @@ public:
 
 		// call gnuplot
 		char commandLine[1000];
-		std::sprintf(commandLine, "gnuplot -s -p -e \"steadyStateTime=%.6e; %s title 'MCTemporalInfo: E/N = %.4e Td'; load 'LoKI-MC/GnuplotFunctions/MCTemporalInfo.p'\" %s",
-				electronKinetics->steadyStateTime, gnuplotTermOptions, electronKinetics->workCond->reducedElecField, SUPRESS_OUTPUT);
+		std::sprintf(commandLine, "gnuplot -s -p -e \"steadyStateTime=%.6e; %s title 'MCTemporalInfo: E/N = %.4e Td , E-angle = %.4e º, ExcFreq = %.4e Hz , B/N = %.4e Hx'; load 'LoKI-MC/GnuplotFunctions/MCTemporalInfo.p'\" %s",
+				electronKinetics->steadyStateTime, gnuplotTermOptions, electronKinetics->workCond->reducedElecField, electronKinetics->workCond->elecFieldAngle, electronKinetics->workCond->excitationFrequency, electronKinetics->workCond->reducedMagField, SUPRESS_OUTPUT);
 		int systemReturn = std::system(commandLine);
 	}
+
+	void plotMCTemporalInfoPeriodic(Eigen::ArrayXd &integrationPhases, Eigen::ArrayXd &meanEnergies_periodic, Eigen::ArrayXXd &fluxVelocities_periodic, Eigen::ArrayXXd &bulkVelocities_periodic, Eigen::ArrayXXd &fluxDiffusionCoeffs_periodic, Eigen::ArrayXXd &bulkDiffusionCoeffs_periodic){
+
+		double angularFrequency = electronKinetics->workCond->excitationFrequency*2.0*M_PI;
+		if (angularFrequency == 0){
+			return;
+		}
+
+		FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/MCTemporalInfo_periodic.dat", "w");
+		std::vector<std::string> vars = {"#Phase(rad)", "Phase(s)","E/N(Td)", "MeanEnergy(eV)", "FluxV_x(m/s)","FluxV_y(m/s)","FluxV_z(m/s)","BulkV_x(m/s)", "BulkV_y(m/s)","BulkV_z(m/s)", "FluxND_xx(1/(ms))", "FluxND_xy(1/(ms))", "FluxND_xz(1/(ms))", "FluxND_yx(1/(ms))", "FluxND_yy(1/(ms))", "FluxND_yz(1/(ms))", "FluxND_zx(1/(ms))", "FluxND_zy(1/(ms))", "FluxND_zz(1/(ms))", "BulkND_xx(1/(ms))", "BulkND_xy(1/(ms))", "BulkND_xz(1/(ms))", "BulkND_yx(1/(ms))", "BulkND_yy(1/(ms))", "BulkND_yz(1/(ms))", "BulkND_zx(1/(ms))", "BulkND_zy(1/(ms))", "BulkND_zz(1/(ms))"};
+		std::string header;
+		for (auto var: vars){
+			header += var + std::string(20-var.size(), ' ');
+		}
+		std::fprintf(fileID, "%s\n", header.c_str());
+		double EN = electronKinetics->workCond->reducedElecField;
+		double N = electronKinetics->workCond->gasDensity;		
+		int nIntegrationPhases = integrationPhases.size();
+		for (int phaseIdx = 0; phaseIdx < nIntegrationPhases; ++phaseIdx){			
+			std::fprintf(fileID, "%-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e %-19.10e\n", 
+				integrationPhases[phaseIdx], integrationPhases[phaseIdx]/angularFrequency, std::sqrt(2)*EN*std::cos(integrationPhases[phaseIdx]), meanEnergies_periodic[phaseIdx], fluxVelocities_periodic(phaseIdx,0), fluxVelocities_periodic(phaseIdx,1), fluxVelocities_periodic(phaseIdx,2), bulkVelocities_periodic(phaseIdx,0), bulkVelocities_periodic(phaseIdx,1), bulkVelocities_periodic(phaseIdx,2),
+				N*fluxDiffusionCoeffs_periodic(phaseIdx,0), N*fluxDiffusionCoeffs_periodic(phaseIdx,1), N*fluxDiffusionCoeffs_periodic(phaseIdx,2), N*fluxDiffusionCoeffs_periodic(phaseIdx,3), N*fluxDiffusionCoeffs_periodic(phaseIdx,4), N*fluxDiffusionCoeffs_periodic(phaseIdx,5), N*fluxDiffusionCoeffs_periodic(phaseIdx,6), N*fluxDiffusionCoeffs_periodic(phaseIdx,7), N*fluxDiffusionCoeffs_periodic(phaseIdx,8), 
+				N*bulkDiffusionCoeffs_periodic(phaseIdx,0), N*bulkDiffusionCoeffs_periodic(phaseIdx,1), N*bulkDiffusionCoeffs_periodic(phaseIdx,2), N*bulkDiffusionCoeffs_periodic(phaseIdx,3), N*bulkDiffusionCoeffs_periodic(phaseIdx,4), N*bulkDiffusionCoeffs_periodic(phaseIdx,5), N*bulkDiffusionCoeffs_periodic(phaseIdx,6), N*bulkDiffusionCoeffs_periodic(phaseIdx,7), N*bulkDiffusionCoeffs_periodic(phaseIdx,8));
+		}
+		std::fclose(fileID);
+
+		// call gnuplot
+		char commandLine[1000];
+		std::sprintf(commandLine, "gnuplot -s -p -e \"%s title 'MCTemporalInfo_periodic: E/N = %.4e Td , E-angle = %.4e º, ExcFreq = %.4e Hz , B/N = %.4e Hx'; load 'LoKI-MC/GnuplotFunctions/MCTemporalInfo_periodic.p'\" %s",
+				gnuplotTermOptions, electronKinetics->workCond->reducedElecField, electronKinetics->workCond->elecFieldAngle, electronKinetics->workCond->excitationFrequency, electronKinetics->workCond->reducedMagField, SUPRESS_OUTPUT);
+		int systemReturn = std::system(commandLine);		
+
+	}	
 
 	void plotDistributionFunctions(Eigen::ArrayXd &eedf, Eigen::ArrayXd &eedfEnergyCells, Eigen::ArrayXXd &evdf, Eigen::ArrayXd &radialVelocityCells, Eigen::ArrayXd &axialVelocityCells){
 
@@ -168,7 +237,7 @@ public:
 			std::sprintf(commandLine, "gnuplot -s -p -e \"%s title 'EEDF: T_e = %.4e eV'; load 'LoKI-MC/GnuplotFunctions/eedf.p'\" %s", 
 				    gnuplotTermOptions, electronKinetics->workCond->electronTemperature, SUPRESS_OUTPUT);
 		}
-		else if (eedfType == "boltzmannMC" ){
+		else if (eedfType == "boltzmannMC"  && isCylindricallySymmetric){
 			// write the evdf data in an auxiliary file
 			int numberOfAxialCells = radialVelocityCells.size(), numberOfRadialCells = axialVelocityCells.size();
 			FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/evdf.dat", "w");
@@ -180,25 +249,35 @@ public:
 			}
 			std::fclose(fileID);
 
-			std::sprintf(commandLine, "gnuplot -s -p -e \"%s title 'EEDF and EVDF: E/N = %.4e Td'; load 'LoKI-MC/GnuplotFunctions/eedfEvdf.p'\" %s", 
-				    gnuplotTermOptions, electronKinetics->workCond->reducedElecField, SUPRESS_OUTPUT);
+			std::sprintf(commandLine, "gnuplot -s -p -e \"%s title 'EEDF and EVDF: E/N = %.4e Td , E-angle = %.4e º , ExcFreq = %.4e Hz , B/N = %.4e Hx'; load 'LoKI-MC/GnuplotFunctions/eedfEvdf.p'\" %s", 
+				    gnuplotTermOptions, electronKinetics->workCond->reducedElecField, electronKinetics->workCond->elecFieldAngle, electronKinetics->workCond->excitationFrequency, electronKinetics->workCond->reducedMagField, SUPRESS_OUTPUT);
 		}
+		else{
+			std::sprintf(commandLine, "gnuplot -s -p -e \"%s title 'EEDF: E/N = %.4e Td , E-angle = %.4e º , ExcFreq = %.4e Hz , B/N = %.4e Hx'; load 'LoKI-MC/GnuplotFunctions/eedf.p'\" %s", 
+				    gnuplotTermOptions, electronKinetics->workCond->reducedElecField, electronKinetics->workCond->elecFieldAngle, electronKinetics->workCond->excitationFrequency, electronKinetics->workCond->reducedMagField, SUPRESS_OUTPUT);
+		}
+
+
+
 
 		// call gnuplot
 		int systemReturn = std::system(commandLine);
 	}
 
-	void plotPower(PowerStruct power){
+	void plotPower(std::map<std::string,double> powerMap){
 
-		// local copy of the power values
-		std::map<std::string,double> powerMap = electronKinetics->power.Map;
 		double ref = powerMap["reference"];
 
 		// write the headers of the auxiliary file
 		if (currentJobID == 0){
 			// write the auxiliary file
 			FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/power.dat", "w");
-			std::fprintf(fileID, "#inputParameter    Field              elasticGain        elasticLoss        CARGain            CARLoss            rotationalGain     rotationalLoss     vibrationalGain    vibrationalLoss    electronicGain     electronicLoss     ionization         attachment         growth             \n");
+			std::vector<std::string> vars = {"#inputParameter", "Field", "elasticGain", "elasticLoss", "CARGain", "CARLoss", "rotationalGain", "rotationalLoss", "vibrationalGain", "vibrationalLoss", "electronicGain", "electronicLoss", "ionization", "attachment", "growth"};
+			std::string header;
+			for (auto var: vars){
+				header += var + std::string(19-var.size(), ' ');
+			}			
+			std::fprintf(fileID, "%s\n", header.c_str());
 			std::fclose(fileID);
 		}
 
@@ -226,12 +305,21 @@ public:
 
 	void plotSwarm(std::map<std::string,double> swarmParam){
 
+		bool BoltzmannMCSymmetricPlot = eedfType == "boltzmannMC" && isCylindricallySymmetric; //&& 
+										//electronKinetics->workCond->reducedMagField == 0 && electronKinetics->workCond->reducedMagFieldArray.size() == 1 &&
+										//electronKinetics->workCond->excitationFrequency == 0 && electronKinetics->workCond->excitationFrequencyArray.size() == 1;	
+
 		if (eedfType == "prescribedEedf"){
 
 			// write the headers of the auxiliary file
 			if (currentJobID == 0){
 				FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat", "w");
-				std::fprintf(fileID, "#inputParameter    RedDif(1/(ms))     RedMob(1/(msV))    RedTow(m2)         RedAtt(m2)         MeanE(eV)          CharE(eV)          \n");
+				std::vector<std::string> vars = {"#inputParameter", "RedDif(1/(ms))", "RedMob(1/(msV))", "RedTow(m2)", "RedAtt(m2)", "MeanE(eV)", "CharE(eV)"}; 
+				std::string header;	
+				for (auto var: vars){
+					header += var + std::string(19-var.size(), ' ');
+				}				
+				std::fprintf(fileID, "%s\n", header.c_str());
 				std::fclose(fileID);
 			}
 
@@ -250,26 +338,68 @@ public:
 		}
 
 
-		else if (eedfType == "boltzmannMC"){ 
+		else if (BoltzmannMCSymmetricPlot){ 
 
 			// write the headers of the auxiliary file
 			if (currentJobID == 0){
 				FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat", "w");
-				std::fprintf(fileID, "#inputParameter           FluxRedTransvDif(1/(ms))  FluxRedLongDif(1/(ms))    FluxRedMob(1/(msV))       FluxCharE(eV)             BulkRedTransvDif(1/(ms))  BulkRedLongDif(1/(ms))    BulkRedMob(1/(msV))       BulkCharE(eV)             MeanE(eV)                 ionCoeff(m-3)             attCoeff(m-3)\n");
+				std::vector<std::string> vars = {"#inputParameter", "FluxRedTransvDif(1/(ms))", "FluxRedLongDif(1/(ms))", "FluxRedMob(1/(msV))", "FluxCharE(eV)", "BulkRedTransvDif(1/(ms))", "BulkRedLongDif(1/(ms))", "BulkRedMob(1/(msV))", "BulkCharE(eV)", "MeanE(eV)", "ionCoeff(m-3)", "attCoeff(m-3)","RedDif_eedf(1/(ms))","RedMob_eedf(1/(msV)","charE_eedf(eV)"}; 
+				std::string header;	
+				for (auto var: vars){
+					header += var + std::string(26-var.size(), ' ');
+				}				
+				std::fprintf(fileID, "%s\n", header.c_str());
 				std::fclose(fileID);
 			}
 
 			// write the values of the current job
 			FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat", "a");
-			std::fprintf(fileID, "%-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e\n", inputParameter, 
+			std::fprintf(fileID, "%-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e\n", inputParameter, 
 					swarmParam["fluxRedTransvDiffCoeff"], swarmParam["fluxRedLongDiffCoeff"], swarmParam["fluxRedMobCoeff"], swarmParam["fluxCharacEnergy"],
-					swarmParam["bulkRedTransvDiffCoeff"], swarmParam["bulkRedLongDiffCoeff"], swarmParam["bulkRedMobCoeff"], swarmParam["bulkCharacEnergy"], swarmParam["meanEnergy"], swarmParam["totalIonRateCoeff"], swarmParam["totalAttRateCoeff"]);
+					swarmParam["bulkRedTransvDiffCoeff"], swarmParam["bulkRedLongDiffCoeff"], swarmParam["bulkRedMobCoeff"], swarmParam["bulkCharacEnergy"], swarmParam["meanEnergy"], swarmParam["totalIonRateCoeff"], swarmParam["totalAttRateCoeff"],
+					swarmParam["redDiffCoeff_eedf"], swarmParam["redMobCoeff_DC_eedf"], swarmParam["characEnergy_eedf"]);
 			std::fclose(fileID);
 
 		    // plot the swarm parameters if this is the last solution
 			if (currentJobID == numberOfJobs-1){
 				char commandLine[1000];
 				std::sprintf(commandLine, "gnuplot -s -p -e \"xLabel='%s'; %s title 'Swarm Parameters'; load 'LoKI-MC/GnuplotFunctions/swarmParams_BoltzmannMC.p'\" %s", xLabel.c_str(), gnuplotTermOptions, SUPRESS_OUTPUT);
+				int systemReturn = std::system(commandLine);
+			}
+		}
+
+		else{
+			Eigen::Matrix3d fluxDiff = electronKinetics->totalGasDensity*electronKinetics->averagedFluxDiffusionCoeffs;
+		    Eigen::Matrix3d bulkDiff = electronKinetics->totalGasDensity*electronKinetics->averagedBulkDiffusionCoeffs;
+			Eigen::Array3d fluxV = Eigen::abs(electronKinetics->averagedFluxDriftVelocity);
+			Eigen::Array3d bulkV = Eigen::abs(electronKinetics->averagedBulkDriftVelocity);
+
+		    // write the headers of the auxiliary file
+		    if (currentJobID == 0){
+				FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat", "w");
+				std::vector<std::string> vars = {"#inputParameter", "fluxNDxx(1/(ms))", "fluxNDyy(1/(ms))", "fluxNDzz(1/(ms))", "bulkNDxx(1/(ms))", "bulkNDyy(1/(ms))", "bulkNDzz(1/(ms))","fluxVx(m/s)","fluxVy(m/s)","fluxVz(m/s)","bulkVx(m/s)","bulkVy(m/s)", "bulkVz(m/s)", "MeanE(eV)", "ionCoeff(m-3)", "attCoeff(m-3)", "RedDif_eedf(1/(ms))","RedMob_eedf(1/(msV))","charE_eedf(eV)"}; 
+				std::string header;	
+				for (auto var: vars){
+					header += var + std::string(26-var.size(), ' ');
+				}					
+				std::fprintf(fileID, "%s\n", header.c_str());		    	
+		    	std::fclose(fileID);
+		    }
+
+			// write the values of the current job
+			FILE* fileID = std::fopen("LoKI-MC/GnuplotFunctions/TempData/swarmParams.dat", "a");
+			std::fprintf(fileID, "%-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e %-25.10e\n", inputParameter, 
+				fluxDiff(0,0), fluxDiff(1,1), fluxDiff(2,2), bulkDiff(0,0), bulkDiff(1,1), bulkDiff(2,2),
+				fluxV[0], fluxV[1], fluxV[2], bulkV[0], bulkV[1], bulkV[2],
+				swarmParam["meanEnergy"], swarmParam["totalIonRateCoeff"], swarmParam["totalAttRateCoeff"],  
+				swarmParam["redDiffCoeff_eedf"], swarmParam["redMobCoeff_DC_eedf"], swarmParam["characEnergy_eedf"]);
+			std::fclose(fileID);					    
+
+		    // plot the swarm parameters if this is the last solution
+			if (currentJobID == numberOfJobs-1){
+				char commandLine[1000];
+				std::sprintf(commandLine, "gnuplot -s -p -e \"xLabel='%s'; %s title 'Swarm Parameters'; load 'LoKI-MC/GnuplotFunctions/swarmParams_BoltzmannMC_nonSymmetric.p'\" %s", 
+					xLabel.c_str(), gnuplotTermOptions, SUPRESS_OUTPUT);
 				int systemReturn = std::system(commandLine);
 			}
 		}

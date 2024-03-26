@@ -16,6 +16,9 @@
 #include "LoKI-MC/Headers/Constant.h"
 #include "LoKI-MC/Headers/FieldInfo.h"
 #include "LoKI-MC/Headers/GUI.h"
+#include "LoKI-MC/Headers/AngularDistributionFunctions.h"
+#include "LoKI-MC/Headers/MathFunctions.h"
+#include <omp.h>
 #include <string>
 #include <limits>
 #include <numeric>
@@ -26,9 +29,8 @@
 #include <algorithm>
 #include <time.h>
 #include <chrono>
-#include <omp.h>
 
-//class Collision;
+class Collision;
 
 template <class ElectronKineticsType>
 class Setup{
@@ -50,8 +52,8 @@ public:
 	/************* Objects of the simulation ****************/
 
 	WorkingConditions* workCond;         				   		//  
-	GUI<ElectronKineticsType>* gui = NULL;						//  
-	Output<ElectronKineticsType>* output = NULL;				// ->  General objects of the simulation
+	GUI<ElectronKineticsType>* gui = NULL;		                //  
+	Output<ElectronKineticsType>* output = NULL;	            // ->  General objects of the simulation
 
 	ElectronKineticsType* electronKinetics;				        // (ElectronKineticsType can be BoltzmannMC or PrescribedEedf)
 	std::vector<EedfGas*> electronKineticsGasArray;			   	// 
@@ -113,6 +115,45 @@ public:
 			// setting up the gas mixture that is going to be used to solve the electron kinetics
 			createElectronKineticsGasMixture();
 
+			/*std::cout<<"----- PRINTING GASES -----\n\n";
+			double temp;
+			for (auto& gas: electronKineticsGasArray){
+				gas->disp();
+				std::cout<<"-------------------------------------"<<std::endl;
+			}*/
+
+			/*std::cout<<"----- PRINTING STATES -----\n\n";
+			for (auto& state: electronKineticsStateArray){
+				state->disp();
+				std::cout<<"-------------------------------------"<<std::endl;
+			}*/
+
+			/*std::cout<<"----- PRINTING COLLISIONS -----\n\n";
+			for (auto& collision: electronKineticsCollisionArray){
+				std::cout<<collision->description()<<std::endl;
+				std::cout<<"  ID: "<<collision->ID<<std::endl;
+				std::cout<<"  isExtra: "<<collision->isExtra<<std::endl;
+				std::cout<<"  isReverse: "<<collision->isReverse<<std::endl;
+				std::cout<<"  threshold: "<<collision->threshold<<std::endl;
+				std::cout<<"-------------------------------------"<<std::endl;
+				int crossSectionSize = collision->rawCrossSection[0].size();
+				for (int i = 0; i < crossSectionSize; ++i){
+					std::cout<<collision->rawCrossSection[0][i]<<" "<<collision->rawCrossSection[1][i]<<std::endl;
+				}
+				std::cout<<"  angularScatteringType: "<<collision->angularScatteringType<<std::endl;
+				std::cout<<"  angularScatteringParams: ";
+				for (auto param: collision->angularScatteringParams){
+					std::cout<<param<<", ";
+				}
+				std::cout<<"-------------------------------------"<<std::endl;
+				int crossSectionSize = collision->rawCrossSection[0].size();
+				for (int i = 0; i < crossSectionSize; ++i){
+					std::cout<<collision->rawCrossSection[0][i]<<" "<<collision->rawCrossSection[2][i]<<std::endl;
+				}				
+				std::printf("\n\n");
+			}
+			std::getchar();*/
+
 			// create energy grid object and save it for later use
 			energyGrid = new Grid();
 
@@ -129,6 +170,15 @@ public:
 		else if (workCond->variableCondition == "reducedElecField"){
 			numberOfJobs = workCond->reducedElecFieldArray.size();
 		}
+		else if (workCond->variableCondition == "reducedMagField"){
+			numberOfJobs = workCond->reducedMagFieldArray.size();
+		}
+		else if (workCond->variableCondition == "elecFieldAngle"){
+			numberOfJobs = workCond->elecFieldAngleArray.size();
+		}
+		else if (workCond->variableCondition == "excitationFrequency"){
+			numberOfJobs = workCond->excitationFrequencyArray.size();
+		}
 
 		// ----- SETTING UP THE GUI AND OUTPUT OF THE SIMULATION -----
 		if (enableGui){
@@ -140,6 +190,8 @@ public:
 	}
 
 	void nextJob(){
+		
+		static std::string eedfType = FieldInfo::getFieldValue("electronKinetics.eedfType");
 
 		// increase the current job ID
 		++currentJobID;
@@ -156,6 +208,18 @@ public:
 			else if (workCond->variableCondition == "reducedElecField"){
 				propertiesToUpdate = {"reducedElecField"};
 				newValues = {workCond->reducedElecFieldArray[currentJobID]};
+			}
+			else if (workCond->variableCondition == "reducedMagField"){
+				propertiesToUpdate = {"reducedMagField"};
+				newValues = {workCond->reducedMagFieldArray[currentJobID]};	
+			}
+			else if (workCond->variableCondition == "elecFieldAngle"){
+				propertiesToUpdate = {"elecFieldAngle"};
+				newValues = {workCond->elecFieldAngleArray[currentJobID]};	
+			}
+			else if (workCond->variableCondition == "excitationFrequency"){
+				propertiesToUpdate = {"excitationFrequency"};
+				newValues = {workCond->excitationFrequencyArray[currentJobID]};	
 			}				
 			// set properties for the next job
 			workCond->update(propertiesToUpdate, newValues);
@@ -194,7 +258,7 @@ public:
 	    }
 	    for (auto stateString: Parse::getMapKeys(effectiveCrossSectionPopulationsMap)){
 	    	double value = effectiveCrossSectionPopulationsMap[stateString];
-	    	rawStateStruct rawState = Parse::getRawState(stateString);
+	    	Parse::rawStateStruct rawState = Parse::getRawState(stateString);
 	    	std::vector<int> stateIDs = EedfState::find(rawState.gasName, rawState.ionCharg, rawState.eleLevel, rawState.vibLevel, rawState.rotLevel, electronKineticsStateArray);
 	    	if (stateIDs[0] == -1){
 	    		continue;
@@ -204,6 +268,9 @@ public:
 	    	}
 	    }
 
+
+	    // assign angular scattering types/models
+	    assignAngularScatteringTypes();
 
 	    // different checks for each gas in gasArray
 	    for (auto& gas: electronKineticsGasArray){
@@ -228,7 +295,8 @@ public:
 		// populations, etc.) must be filled later on with the information available in the input file.
 		
 		// parse LXCat files
-		std::vector<LXCatEntryStruct> LXCatEntryArray = Parse::LXCatFiles( FieldInfo::getFieldChildNames("electronKinetics.LXCatFiles") );
+		std::vector<Parse::LXCatEntryStruct> LXCatEntryArray = Parse::LXCatFiles( FieldInfo::getFieldChildNames("electronKinetics.LXCatFiles") );
+
 
 		// create gases, states and collisions from the LXCat parsed info
 		int gasID, targetID, productID;
@@ -248,7 +316,7 @@ public:
 			}
 
 			Collision::add(LXCatEntry.type, target, productArray, LXCatEntry.productStoiCoeff, LXCatEntry.isReverse, LXCatEntry.threshold,
-			               LXCatEntry.rawCrossSection, electronKineticsCollisionArray, false);		
+			               LXCatEntry.rawIntegralCrossSection, LXCatEntry.rawMomTransfCrossSection, electronKineticsCollisionArray, false);		
 		}
 
 		// create "extra" collisions (and corresponding gases/states) in case they are specified in the setup file
@@ -272,12 +340,122 @@ public:
 				}
 
 				Collision::add(LXCatEntry.type, target, productArray, LXCatEntry.productStoiCoeff, LXCatEntry.isReverse, LXCatEntry.threshold,
-				               LXCatEntry.rawCrossSection, electronKineticsCollisionArray, true);		
+				               LXCatEntry.rawIntegralCrossSection, LXCatEntry.rawMomTransfCrossSection, electronKineticsCollisionArray, true);		
 			}
 		}
 
 		// create states needed to fix orphan states
 		EedfState::fixOrphanStates(electronKineticsStateArray);
+	}
+
+	void assignAngularScatteringTypes(){
+
+		double angleNumber = 0;
+
+		if (FieldInfo::getField("electronKinetics.anisotropicScattering") && 
+			Parse::str2bool(FieldInfo::getFieldValue("electronKinetics.anisotropicScattering.isOn"))){
+
+			angleNumber = FieldInfo::getFieldNumericValue("electronKinetics.anisotropicScattering.angleNumber");
+
+			std::vector<std::string> collisionStrings;
+			// join all collision strings
+			for (auto str: FieldInfo::getFieldChildNames("electronKinetics.anisotropicScattering.collisions")){
+				// if it is a collision string 
+				if (str.find(';') != std::string::npos){
+					collisionStrings.push_back(str);
+				}
+				// else, it is a file name for several collision strings
+				else{
+					collisionStrings = MathFunctions::append(collisionStrings, Parse::readFileStrings(std::string("Input/") + str));
+				}			
+			}		
+
+			// get all collisions in the setup file
+			for (auto collisionString: collisionStrings){
+
+				// separate information
+				std::vector<std::string> stringPortions = Parse::tokenizeCharacters(collisionString,(char*)";");
+
+				// get the grouping string: "group" or "single"
+				std::string groupingString = stringPortions[0];
+
+				bool collisionFound = false;
+				if (groupingString == "group"){
+					if (stringPortions.size() < 4){
+						Message::error(std::string("Error while reading the following setup line of electronKinetics.anisotropicScattering.collisions:\n") + collisionString);
+					}
+					// get the different components
+					std::string gasName = stringPortions[1];
+					std::string collisionType = stringPortions[2];
+					std::string angularScatteringType = stringPortions[3];
+					std::vector<double> angularScatteringParams;
+					if (stringPortions.size() > 4){
+						for (auto strParam: Parse::tokenizeCharacters(stringPortions[4],(char*)",")){
+							angularScatteringParams.push_back(Parse::str2value(strParam));
+						}	
+					}	
+					// find the gas and the corresponding collisions
+					int gasIndex = EedfGas::find(gasName,electronKineticsGasArray);
+					if (gasIndex != -1){
+						EedfGas* gas = electronKineticsGasArray[gasIndex];
+						for (auto& collision: gas->collisionArray){
+							if (collision->type == collisionType){
+								collision->angularScatteringType = angularScatteringType;
+								collision->angularScatteringParams = angularScatteringParams;
+								collisionFound = true;
+							}
+						}
+					}	
+				}
+
+				else if (groupingString == "single"){
+					if (stringPortions.size() < 3){
+						Message::error(std::string("Error while reading the following setup line of electronKinetics.anisotropicScattering.collisions:\n") + collisionString);
+					}
+					// get the different components
+					std::string collisionDescription = stringPortions[1];
+					std::string angularScatteringType = stringPortions[2];
+					std::vector<double> angularScatteringParams;
+					if (stringPortions.size() > 3){
+						for (auto strParam: Parse::tokenizeCharacters(stringPortions[3],(char*)",")){
+							angularScatteringParams.push_back(Parse::str2value(strParam));
+						}	
+					}
+					// find the collision through the description
+					for (auto& collision: electronKineticsCollisionArray){
+						if (collision->description() == collisionDescription){
+							collision->angularScatteringType = angularScatteringType;
+							collision->angularScatteringParams = angularScatteringParams;
+							collisionFound = true;
+							break;							
+						}
+					}
+				}
+
+				else{
+					Message::error(std::string("Error while reading the following setup line of electronKinetics.anisotropicScattering.collisions:\n") + collisionString);
+				}
+
+				if (!collisionFound){
+					Message::error(std::string("Error while reading the following setup line of electronKinetics.anisotropicScattering.collisions:\n") + collisionString + 
+						"\nThe collision (group or single) was not found.");
+				}				
+			}
+		}
+
+		// assign the angular scattering functions of all collisions (including isotropic ones)
+		// evaluate the raw momentum-transfer cross-section
+		// assure that all "Effective" an "Attachment" collisions are isotropic
+		for (auto& gas: electronKineticsGasArray){
+			for (auto& collision: gas->collisionArray){
+				collision->angularDistributionFunction = AngularDistributionFunctions::functionMap(collision->angularScatteringType,collision->angularScatteringParams);
+				collision->evaluateRawMomTransfCrossSection(angleNumber);
+				if (collision->angularScatteringType != "isotropic" && (collision->type == "Effective" || collision->type == "Attachment")){
+					Message::error(std::string("Error in the following collision:\n") + collision->description() + "\n'" + 
+					collision->type + "' collisions cannot have a user-prescribed angular scattering model.");
+				}
+			}
+		}	
 	}
 
 	template <class GasType>
@@ -324,7 +502,7 @@ public:
 				findPropertyFunctionArguments(propertyString, argumentArray, argumentStrArray); 
 			}
 
-			evaluateGasPropertyFunction(propertyString, moduleGasArray[gasID], property, argumentArray, argumentStrArray, workCond);
+			GasPropertyFunctions::evaluateGasPropertyFunction(propertyString, moduleGasArray[gasID], property, argumentArray, argumentStrArray, workCond);
 			
 			argumentArray.clear();
 			argumentStrArray.clear();
@@ -346,7 +524,7 @@ public:
 		std::string propertyString;
 		std::vector<std::string> stateNames;
 		std::vector<StateType*> stateArray;
-		rawStateStruct rawState;
+		Parse::rawStateStruct rawState;
 		std::vector<double> argumentArray;
 		std::vector<std::string> argumentStrArray;
 
@@ -365,7 +543,7 @@ public:
 				findPropertyFunctionArguments(propertyString, argumentArray, argumentStrArray); 
 			}
 
-			evaluateStatePropertyFunction(propertyString, stateArray, property, argumentArray, argumentStrArray, workCond);
+			StatePropertyFunctions::evaluateStatePropertyFunction(propertyString, stateArray, property, argumentArray, argumentStrArray, workCond);
 			
 			argumentArray.clear();
 			argumentStrArray.clear();
@@ -373,7 +551,7 @@ public:
 	}
 
 	template <class StateType>
-	void convertRawToState(std::vector<rawStateStruct> rawStateArray, std::vector<StateType*> &stateArray, std::vector<StateType*> &moduleStateArray){
+	void convertRawToState(std::vector<Parse::rawStateStruct> rawStateArray, std::vector<StateType*> &stateArray, std::vector<StateType*> &moduleStateArray){
 		stateArray.clear();
 		for (auto& rawState: rawStateArray){
 			stateArray.push_back(StateType::findPointer(rawState.gasName, rawState.ionCharg, rawState.eleLevel, rawState.vibLevel, rawState.rotLevel, moduleStateArray)[0]);
@@ -397,7 +575,6 @@ public:
 
 	void selfDiagnostic(){
 		// 'selfDiagnostic' is a function that performs a diagnostic of the values provided by the user in the setup file, checking for the correctness of the simulation configuration.
-		// update when the 'Boltzmann' class is added
 
 		std::string fieldValue;
 		double numericValue;
@@ -439,16 +616,9 @@ public:
 					}
 					else if (FieldInfo::getFieldValue("electronKinetics.ionizationOperatorType") != "oneTakesAll" &&
 						     FieldInfo::getFieldValue("electronKinetics.ionizationOperatorType") != "equalSharing" &&
-						     FieldInfo::getFieldValue("electronKinetics.ionizationOperatorType") != "usingSDCS"){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>ionizationOperatorType''.\nValue should be either: ''oneTakesAll'', ''equalSharing'' or ''usingSDCS''.\nPlease, fix the problem and run the code again.");
-					}
-					// --- 'ionizationScattering' field
-					if (!FieldInfo::getField("electronKinetics.ionizationScattering")){
-						Message::error("Error found in the configuration of the setup file.\n''ionizationScattering'' field not found in the ''electronKinetics'' section of the setup file.\nPlease, fix the problem and run the code again.");
-					}
-					else if (FieldInfo::getFieldValue("electronKinetics.ionizationScattering") != "isotropic" &&
-						     FieldInfo::getFieldValue("electronKinetics.ionizationScattering") != "anisotropic"){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>ionizationScattering''.\nValue should be either: ''isotropic''or ''anisotropic''.\nPlease, fix the problem and run the code again.");
+						     FieldInfo::getFieldValue("electronKinetics.ionizationOperatorType") != "usingSDCS" &&
+						     FieldInfo::getFieldValue("electronKinetics.ionizationOperatorType") != "randomUniform"){
+						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>ionizationOperatorType''.\nValue should be either: ''oneTakesAll'', ''equalSharing'', ''usingSDCS'' or ''randomUniform''.\nPlease, fix the problem and run the code again.");
 					}
 				}			
 				// --- 'LXCatFiles' field
@@ -495,16 +665,12 @@ public:
 					}
 				}
 				// --- 'numericsMC' field
-				else if (FieldInfo::getFieldValue("electronKinetics.eedfType") == "boltzmannMC"){
+				else if ((FieldInfo::getFieldValue("electronKinetics.eedfType")).find("boltzmannMC") != std::string::npos){
 					if (!FieldInfo::getField("electronKinetics.numericsMC")){
 						Message::error("Error found in the configuration of the setup file.\n''numericsMC'' field not found in the ''electronKinetics'' section of the setup file.\nPlease, fix the problem and run the code again.");
 					}
 					else if (!FieldInfo::getField("electronKinetics.numericsMC.nElectrons")){
 						Message::error("Error found in the configuration of the setup file.\n''nElectrons'' field not found in the ''electronKinetics>numericsMC'' section of the setup file.\nPlease, fix the problem and run the code again.");
-					}
-					else if (FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nElectrons") <= 0 ||
-							 std::fmod(FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nElectrons"), 1) != 0){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>nElectrons''.\nValue should be a single positive integer.\nPlease, fix the problem and run the code again.");
 					}
 					else if (!FieldInfo::getField("electronKinetics.numericsMC.gasTemperatureEffect")){
 						Message::error("Error found in the configuration of the setup file.\n''gasTemperatureEffect'' field not found in the ''electronKinetics>numericsMC'' section of the setup file.\nPlease, fix the problem and run the code again.");
@@ -513,12 +679,6 @@ public:
 							 FieldInfo::getFieldValue("electronKinetics.numericsMC.gasTemperatureEffect") != "true" &&
 							 FieldInfo::getFieldValue("electronKinetics.numericsMC.gasTemperatureEffect") != "smartActivation"){
 						Message::error("Error found in the configuration of the setup file.\nWrong value for the field electronKinetics>numericsMC.\nValue should be ''false'', ''true'' or ''smartActivation''.\nPlease, fix the problem and run the code again.");
-					}
-					else if (FieldInfo::getField("electronKinetics.numericsMC.maxCollisionsBeforeSteadyState") && FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.maxCollisionsBeforeSteadyState") <= 0){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>maxCollisionsBeforeSteadyState''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
-					}
-					else if (FieldInfo::getField("electronKinetics.numericsMC.maxCollisionsAfterSteadyState") && FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.maxCollisionsAfterSteadyState") <= 0){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>maxCollisionsAfterSteadyState''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
 					}
 					else if (FieldInfo::getField("electronKinetics.numericsMC.nEnergyCells") &&
 							 FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nEnergyCells") <= 0 ||
@@ -545,30 +705,70 @@ public:
 							 std::fmod(FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nInterpPoints"), 1) != 0){
 						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>nInterpPoints''.\nValue should be a single positive integer.\nPlease, fix the problem and run the code again.");
 					}
-					else if (FieldInfo::getField("electronKinetics.numericsMC.nIntegrationPoints") &&
-							 FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegrationPoints") < 500 ||
-							 std::fmod(FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegrationPoints"), 1) != 0){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>nIntegrationPoints''.\nValue should be a single integer >= 500.\nPlease, fix the problem and run the code again.");
+					else if (FieldInfo::getField("electronKinetics.numericsMC.synchronizationTimeXMaxCollisionFrequency") &&
+							 FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.synchronizationTimeXMaxCollisionFrequency") <= 0){
+						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>synchronizationTimeXMaxCollisionFrequency''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
 					}
-					else if (FieldInfo::getField("electronKinetics.numericsMC.nIntegratedSSTimes") &&
-							 FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegratedSSTimes") <= 0){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>nIntegratedSSTimes''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
-					}														
-					else if (FieldInfo::getField("electronKinetics.numericsMC.relError.meanEnergy") &&
-						     FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.meanEnergy") <= 0 ){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>meanEnergy''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+					else if (FieldInfo::getField("electronKinetics.numericsMC.synchronizationOverSampling") &&
+							 FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.synchronizationOverSampling") < 1 ||
+							 std::fmod(FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.synchronizationOverSampling"), 1) != 0){
+						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>synchronizationOverSampling''.\nValue should be a single integer >= 1.\nPlease, fix the problem and run the code again.");
 					}
-					else if (FieldInfo::getField("electronKinetics.numericsMC.relError.fluxDriftVelocity") &&
-						     FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.fluxDriftVelocity") <= 0 ){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>fluxDriftVelocity''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
-					}
-					else if (FieldInfo::getField("electronKinetics.numericsMC.relError.fluxDiffusionCoeffs") &&
-						     FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.fluxDiffusionCoeffs") <= 0 ){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>fluxDiffusionCoeffs''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
-					}
-					else if (FieldInfo::getField("electronKinetics.numericsMC.relError.powerBalance") &&
-						     FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.powerBalance") <= 0 ){
-						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>powerBalance''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+					if (FieldInfo::getFieldValue("electronKinetics.eedfType") == "boltzmannMC"){
+						if (FieldInfo::getField("electronKinetics.numericsMC.initialElecTempOverGasTemp") && FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.initialElecTempOverGasTemp") <= 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>initialElecTempOverGasTemp''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}					
+						else if (FieldInfo::getField("electronKinetics.numericsMC.minCollisionsBeforeSteadyState") && FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.minCollisionsBeforeSteadyState") < 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>minCollisionsBeforeSteadyState''.\nValue should be a single non-negative number.\nPlease, fix the problem and run the code again.");
+						}					
+						else if (FieldInfo::getField("electronKinetics.numericsMC.maxCollisionsBeforeSteadyState") && FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.maxCollisionsBeforeSteadyState") <= 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>maxCollisionsBeforeSteadyState''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}
+						else if (FieldInfo::getField("electronKinetics.numericsMC.maxCollisionsAfterSteadyState") && FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.maxCollisionsAfterSteadyState") <= 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>maxCollisionsAfterSteadyState''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}																
+						else if (FieldInfo::getField("electronKinetics.numericsMC.nIntegrationPoints") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegrationPoints") < 500 ||
+								std::fmod(FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegrationPoints"), 1) != 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>nIntegrationPoints''.\nValue should be a single integer >= 500.\nPlease, fix the problem and run the code again.");
+						}
+						else if (FieldInfo::getField("electronKinetics.numericsMC.nIntegrationPhases") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegrationPhases") < 1 ||
+								std::fmod(FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegrationPhases"), 1) != 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>nIntegrationPhases''.\nValue should be a single integer > 1.\nPlease, fix the problem and run the code again.");
+						}						
+						else if (FieldInfo::getField("electronKinetics.numericsMC.nIntegratedSSTimes") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.nIntegratedSSTimes") <= 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>nIntegratedSSTimes''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}
+						else if (FieldInfo::getField("electronKinetics.numericsMC.integratedAbsoluteTime") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.integratedAbsoluteTime") <= 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>integratedAbsoluteTime''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}																			
+						else if (FieldInfo::getField("electronKinetics.numericsMC.relError.meanEnergy") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.meanEnergy") <= 0 ){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>meanEnergy''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}
+						else if (FieldInfo::getField("electronKinetics.numericsMC.relError.fluxDriftVelocity") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.fluxDriftVelocity") <= 0 ){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>fluxDriftVelocity''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}
+						else if (FieldInfo::getField("electronKinetics.numericsMC.relError.fluxDiffusionCoeffs") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.fluxDiffusionCoeffs") <= 0 ){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>fluxDiffusionCoeffs''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}
+						else if (FieldInfo::getField("electronKinetics.numericsMC.relError.bulkDriftVelocity") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.bulkDriftVelocity") <= 0 ){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>bulkDriftVelocity''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}
+						else if (FieldInfo::getField("electronKinetics.numericsMC.relError.bulkDiffusionCoeffs") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.bulkDiffusionCoeffs") <= 0 ){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>bulkDiffusionCoeffs''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}						
+						else if (FieldInfo::getField("electronKinetics.numericsMC.relError.powerBalance") &&
+								FieldInfo::getFieldNumericValue("electronKinetics.numericsMC.relError.powerBalance") <= 0 ){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numericsMC>relError>powerBalance''.\nValue should be a single positive number.\nPlease, fix the problem and run the code again.");
+						}
 					}
 				}
 				// --- check configuration of the CAR in case it is activated
@@ -602,13 +802,36 @@ public:
 						     FieldInfo::getFieldNumericValue("electronKinetics.numerics.energyGrid.smartGrid.updateFactor") >= 1){
 						Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>numerics>energyGrid>smartGrid>updateFactor''.\nValue should be a number larger than 0 and smaller than 1.\nPlease, fix the problem and run the code again.");
 					}
-				}		
+				}
+				// check configuration of the anisotropicScattering
+				if (FieldInfo::getField("electronKinetics.anisotropicScattering")){
+					fieldValue = FieldInfo::getFieldValue("electronKinetics.anisotropicScattering.isOn");
+					// check whether the isOn field is present and logical. Then in case it is true the checking continues
+					if (!FieldInfo::getField("electronKinetics.anisotropicScattering.isOn")){
+						Message::error("Error found in the configuration of the setup file.\n''isOn'' field not found in the ''electronKinetics>anisotropicScattering'' section of the setup file.\nPlease, fix the problem and run the code again.");
+					}
+					else if (!Parse::isLogical(fieldValue)){
+						Message::error("Error found in the configuration of the setup file.\nWrong value for the field electronKinetics>anisotropicScattering>isOn.\nValue should be logical (''true'' or ''false'').\nPlease, fix the problem and run the code again.");
+					}
+					else if (Parse::str2bool(fieldValue)){
+						if (!FieldInfo::getField("electronKinetics.anisotropicScattering.collisions")){
+							Message::error("Error found in the configuration of the setup file.\n''collisions'' field not found in the ''electronKinetics>anisotropicScattering'' section of the setup file.\nPlease, fix the problem and run the code again.");
+						}
+						else if (!FieldInfo::getField("electronKinetics.anisotropicScattering.angleNumber")){
+							Message::error("Error found in the configuration of the setup file.\n''angleNumber'' field not found in the ''electronKinetics>anisotropicScattering'' section of the setup file.\nPlease, fix the problem and run the code again.");
+						}						
+						else if (FieldInfo::getFieldNumericValue("electronKinetics.anisotropicScattering.angleNumber") <= 0 ||
+								 std::fmod(FieldInfo::getFieldNumericValue("electronKinetics.anisotropicScattering.angleNumber"), 1) != 0){
+							Message::error("Error found in the configuration of the setup file.\nWrong value for the field ''electronKinetics>anisotropicScattering>angleNumber''.\nValue should be a single positive integer.\nPlease, fix the problem and run the code again.");
+						}												
+					}
+				}			
 			}
 		}
 
 		// check for 'empty' simulations (simulations with no module activated)
-		if (!Parse::str2bool(FieldInfo::getFieldValue("electronKinetics.isOn")) && !Parse::str2bool(FieldInfo::getFieldValue("chemistry.isOn"))){
-			Message::error("Error found in the configuration of the setup file.\nNeither module, ''electronKinetics'' nor ''chemistry'', is activated.\nPlease, fix the problem and run the code again.");
+		if (!Parse::str2bool(FieldInfo::getFieldValue("electronKinetics.isOn"))){
+			Message::error("Error found in the configuration of the setup file.\n''electronKinetics'' module is not activated.\nPlease, fix the problem and run the code again.");
 		}
 
 		// check configuration of the graphical user interface (in case it is present in the setup file)
@@ -632,8 +855,8 @@ public:
 				std::vector<std::string> possibleOptions;
 				std::string possibleOptionsString;
 				if (eedfType == "boltzmannMC"){
-					possibleOptions = {"MCTemporalInfo", "distributionFunctions", "swarmParameters", "powerBalance"};
-					possibleOptionsString = "MCTemporalInfo, distributionFunctions, swarmParameters or powerBalance";
+					possibleOptions = {"MCTemporalInfo","MCTemporalInfo_periodic", "distributionFunctions", "swarmParameters", "powerBalance"};
+					possibleOptionsString = "MCTemporalInfo, MCTemporalInfo_periodic, distributionFunctions, swarmParameters or powerBalance";
 				}
 				else if (eedfType == "prescribedEedf"){
 					possibleOptions = {"distributionFunctions", "swarmParameters", "powerBalance"};
@@ -699,8 +922,8 @@ public:
 				std::vector<std::string> possibleOptions;
 				std::string possibleOptionsString;
 				if (eedfType == "boltzmannMC"){
-					possibleOptions = {"eedf", "evdf", "swarmParameters", "rateCoefficients", "powerBalance", "MCTemporalInfo", "MCSimDetails", "lookUpTable"};
-					possibleOptionsString = "eedf, evdf, swarmParameters, rateCoefficients, powerBalance, MCTemporalInfo, MCSimDetails, lookUpTable";
+					possibleOptions = {"eedf", "evdf", "swarmParameters", "rateCoefficients", "powerBalance", "MCTemporalInfo", "MCTemporalInfo_periodic", "MCSimDetails", "lookUpTable"};
+					possibleOptionsString = "eedf, evdf, swarmParameters, rateCoefficients, powerBalance, MCTemporalInfo, MCTemporalInfo_periodic, MCSimDetails, lookUpTable";
 				}
 				else if (eedfType == "prescribedEedf"){
 					possibleOptions = {"eedf", "swarmParameters", "rateCoefficients", "powerBalance", "lookUpTable"};

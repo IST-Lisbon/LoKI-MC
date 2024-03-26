@@ -168,7 +168,7 @@ std::map<std::string,double> FieldInfo::getFieldNumericMap(std::string chainFiel
 
 	if (field){
 		// if the map is to be evaluated through the children
-		if (field->value.empty())
+		if (field->value.empty()){
 			for (auto& childField: field->childArray){
 				if (childField->value.empty()){
 					fileName = std::string("Input/") + childField->name;
@@ -178,6 +178,7 @@ std::map<std::string,double> FieldInfo::getFieldNumericMap(std::string chainFiel
 					fieldMap[childField->name] = Parse::str2value(childField->value);
 				}
 			}
+		}
 		// if the map is to be evaluated through the field value (file name)
 		else{
 			fileName = std::string("Input/") + field->value;
@@ -194,7 +195,7 @@ std::map<std::string,double> FieldInfo::getFieldNumericMap(FieldInfo* field){
 	std::string fileName;
 
 	// if the map is to be evaluated through the children
-	if (field->value.empty())
+	if (field->value.empty()){
 		for (auto& childField: field->childArray){
 			if (childField->value.empty()){
 				fileName = std::string("Input/") + childField->name;
@@ -204,6 +205,7 @@ std::map<std::string,double> FieldInfo::getFieldNumericMap(FieldInfo* field){
 				fieldMap[childField->name] = Parse::str2value(childField->value);
 			}
 		}
+	}
 	// if the map is to be evaluated through the field value (file name)
 	else{
 		fileName = std::string("Input/") + field->value;
@@ -224,7 +226,7 @@ std::map<std::string,std::string> FieldInfo::getFieldMap(std::string chainFieldS
 
 	if (field){
 		// if the map is to be evaluated through the children
-		if (field->value.empty())
+		if (field->value.empty()){
 			for (auto& childField: field->childArray){
 				if (childField->value.empty()){
 					fileName = std::string("Input/") + childField->name;
@@ -234,6 +236,7 @@ std::map<std::string,std::string> FieldInfo::getFieldMap(std::string chainFieldS
 					fieldMap[childField->name] = childField->value;
 				}
 			}
+		}
 		// if the map is to be evaluated through the field value (file name)
 		else{
 			fileName = std::string("Input/") + field->value;
@@ -250,7 +253,7 @@ std::map<std::string,std::string> FieldInfo::getFieldMap(FieldInfo* field){
 	std::string fileName;
 
 	// if the map is to be evaluated through the children
-	if (field->value.empty())
+	if (field->value.empty()){
 		for (auto& childField: field->childArray){
 			if (childField->value.empty()){
 				fileName = std::string("Input/") + childField->name;
@@ -260,6 +263,7 @@ std::map<std::string,std::string> FieldInfo::getFieldMap(FieldInfo* field){
 				fieldMap[childField->name] = childField->value;
 			}
 		}
+	}
 	// if the map is to be evaluated through the field value (file name)
 	else{
 		fileName = std::string("Input/") + field->value;
