@@ -2280,59 +2280,7 @@ void BoltzmannMC::evaluateRateCoeff(){
 	rateCoeffAll_periodic.clear();
 	rateCoeffExtra_periodic.clear();
 
-	// evaluate rate coefficients for all MC processes
-	for (int i = 0; i < nProcesses; ++i){
-		GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
-		// if it is inelastic
-		if (!isSuperElastic[i]){
-			// get the correspondent 'Collision' object
-			Collision* realCollision = realCollisionPointers[i];
-			// save the ID of the 'Collision' object
-			auxRateCoeff.collID = realCollision->ID;
-			// save the typical rate coefficients, from the convolution of the eedf with the cross section
-			realCollision->evaluateRateCoeff(eedf);
-			auxRateCoeff.ineRate = realCollision->ineRateCoeff;
-			auxRateCoeff.supRate = realCollision->supRateCoeff;
-			// save the MC inelastic rate coefficient 
-			auxRateCoeff.ineRateMC = averagedRateCoeffs[i];
-			// check if the 'Collision' object has a superelastic
-			if (auxRateCoeff.supRate != Constant::NON_DEF){
-				// increment i, since the corresponding MC process is immediately after
-				++i;
-				// save the MC superelastic rate coefficient 
-				auxRateCoeff.supRateMC = averagedRateCoeffs[i];				
-			}
-			// save the collision description
-			auxRateCoeff.collDescription = realCollision->description();
-		}
-		rateCoeffAll.push_back(auxRateCoeff);
-	}
-
-	// evaluate rate coefficients of effective collisions, if they exist.
-	// evaluate rate coefficients for all 'extra' 'Collision' objects
-	for (auto& gas: gasArray){
-		GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
-		for (auto& collision: gas->collisionArray){
-			if (collision->type == "Effective"){
-				auxRateCoeff.collID = collision->ID;
-				collision->evaluateRateCoeff(eedf);
-				auxRateCoeff.ineRate = collision->ineRateCoeff;
-				auxRateCoeff.supRate = collision->supRateCoeff;
-				auxRateCoeff.collDescription = collision->description();
-				rateCoeffAll.push_back(auxRateCoeff);				
-			}
-		}
-		for (auto& collision: gas->collisionArrayExtra){
-			auxRateCoeff.collID = collision->ID;
-			collision->evaluateRateCoeff(eedf);
-			auxRateCoeff.ineRate = collision->ineRateCoeff;
-			auxRateCoeff.supRate = collision->supRateCoeff;
-			auxRateCoeff.collDescription = collision->description();
-			rateCoeffExtra.push_back(auxRateCoeff);
-		}
-	}
-
-	// evaluate rate-coefficients for along the different phases of the period
+	// evaluate rate-coefficients along the different phases of the period
 	if (excitationFrequencyRadians != 0){
 		for (int phaseIdx = 0; phaseIdx < nIntegrationPhases; ++phaseIdx){
 			std::vector<GeneralDefinitions::RateCoeffStruct> rateCoeffAll_onePhase;
@@ -2387,6 +2335,58 @@ void BoltzmannMC::evaluateRateCoeff(){
 			}
 			rateCoeffAll_periodic.push_back(rateCoeffAll_onePhase);
 			rateCoeffExtra_periodic.push_back(rateCoeffExtra_onePhase);		
+		}
+	}	
+
+	// evaluate average rate coefficients for all MC processes
+	for (int i = 0; i < nProcesses; ++i){
+		GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
+		// if it is inelastic
+		if (!isSuperElastic[i]){
+			// get the correspondent 'Collision' object
+			Collision* realCollision = realCollisionPointers[i];
+			// save the ID of the 'Collision' object
+			auxRateCoeff.collID = realCollision->ID;
+			// save the typical rate coefficients, from the convolution of the eedf with the cross section
+			realCollision->evaluateRateCoeff(eedf);
+			auxRateCoeff.ineRate = realCollision->ineRateCoeff;
+			auxRateCoeff.supRate = realCollision->supRateCoeff;
+			// save the MC inelastic rate coefficient 
+			auxRateCoeff.ineRateMC = averagedRateCoeffs[i];
+			// check if the 'Collision' object has a superelastic
+			if (auxRateCoeff.supRate != Constant::NON_DEF){
+				// increment i, since the corresponding MC process is immediately after
+				++i;
+				// save the MC superelastic rate coefficient 
+				auxRateCoeff.supRateMC = averagedRateCoeffs[i];				
+			}
+			// save the collision description
+			auxRateCoeff.collDescription = realCollision->description();
+		}
+		rateCoeffAll.push_back(auxRateCoeff);
+	}
+
+	// evaluate average rate coefficients of effective collisions, if they exist.
+	// evaluate average rate coefficients for all 'extra' 'Collision' objects
+	for (auto& gas: gasArray){
+		GeneralDefinitions::RateCoeffStruct  auxRateCoeff;
+		for (auto& collision: gas->collisionArray){
+			if (collision->type == "Effective"){
+				auxRateCoeff.collID = collision->ID;
+				collision->evaluateRateCoeff(eedf);
+				auxRateCoeff.ineRate = collision->ineRateCoeff;
+				auxRateCoeff.supRate = collision->supRateCoeff;
+				auxRateCoeff.collDescription = collision->description();
+				rateCoeffAll.push_back(auxRateCoeff);				
+			}
+		}
+		for (auto& collision: gas->collisionArrayExtra){
+			auxRateCoeff.collID = collision->ID;
+			collision->evaluateRateCoeff(eedf);
+			auxRateCoeff.ineRate = collision->ineRateCoeff;
+			auxRateCoeff.supRate = collision->supRateCoeff;
+			auxRateCoeff.collDescription = collision->description();
+			rateCoeffExtra.push_back(auxRateCoeff);
 		}
 	}		
 }
