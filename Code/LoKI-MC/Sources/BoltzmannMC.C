@@ -1533,6 +1533,12 @@ void BoltzmannMC::getTimeDependDistributions(){
 				eehSum[newRightPos] += (1.0-leftFraction)*oldEehSum[posOldGrid];
 				eahSum.row(newLeftPos) += leftFraction*oldEahSum.row(posOldGrid);
 				eahSum.row(newRightPos) += (1.0-leftFraction)*oldEahSum.row(posOldGrid);
+				if (excitationFrequencyRadians != 0){
+					for (int i = 0; i < nIntegrationPhases; ++i){
+						eehSum_periodic.col(newLeftPos) += leftFraction*oldEehSum_periodic.col(posOldGrid);
+						eehSum_periodic.col(newRightPos) += (1.0-leftFraction)*oldEehSum_periodic.col(posOldGrid);
+					}
+				}				
 			}
 		}
 
@@ -2128,20 +2134,6 @@ void BoltzmannMC::evaluateSwarmParameters(){
 	swarmParam["bulkRedTransvDiffCoeffError"] = totalGasDensity * (rotatedAveragedBulkDiffusionCoeffsError(0,0) + rotatedAveragedBulkDiffusionCoeffsError(1,1))/2.0;
 	swarmParam["bulkRedLongDiffCoeff"] = totalGasDensity * rotatedAveragedBulkDiffusionCoeffs(2,2);
 	swarmParam["bulkRedLongDiffCoeffError"] = totalGasDensity * rotatedAveragedBulkDiffusionCoeffsError(2,2);
-
-	// total ionization and attachment rate-coefficients
-	swarmParam["totalIonRateCoeff"] = 0;
-	swarmParam["totalAttRateCoeff"] = 0;
-	for (auto& gas: gasArray){
-		for (auto& collision: gas->collisionArray){
-			if (collision->type == "Ionization"){
-				swarmParam["totalIonRateCoeff"] += collision->target->density * collision->ineRateCoeff;
-			}
-			else if (collision->type == "Attachment"){
-				swarmParam["totalAttRateCoeff"] += collision->target->density * collision->ineRateCoeff;
-			}
-		}
-	}
 
 	if (excitationFrequency == 0){
 		// reduced mobility
