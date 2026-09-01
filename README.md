@@ -67,6 +67,7 @@
    When using LoKI-MC in your work, please give proper credits to the main developers, by adding the following citations: <br>
    [] Dias T C, Pintassilgo C D and Guerra V 2023 Plasma Sources Sci. Technol. 32 095003 <br>
    [] Dias T C, Tejero-del-Caz A, Alves L L and Guerra V 2023 Comput. Phys. Commun. 282 108554 <br>
+   [] LoKI-MC (https://doi.org/10.57859/ulisboa-istipfn.000063) 
 
    Additionally, do not forget to reference properly the LXCat databases used for the cross sections, which can be found in the beginning of each LXCat file.
 
